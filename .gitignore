@@ -1,0 +1,10 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+/inputs/
+/outputs/
+/cLHS/
+/old/
+/WNA_BGCv11/
+/hexpolys/
