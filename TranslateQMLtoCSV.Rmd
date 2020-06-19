@@ -1,0 +1,175 @@
+---
+title: "QML_to_CSV"
+author: "KaraSchaefer_WillMacKenzie"
+date: "28/03/2020"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+#knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls())
+library(ggplot2)
+library(XML)
+library(colortools)
+library(sf)
+library(lwgeom)
+library(raster)
+library(sp)
+library(data.table)
+library(dplyr)
+library(bcdata)
+library(bcmaps)
+
+
+```
+##Script to assign colours to map units in a PEM based on complementary colours.
+The user will read in a Map Unit Legend and this script will assign and write colours back to the legend files.  
+The zonal site series colour will match the colours used for the BGC subzone variant
+Then complementary, adjacent, or analagous colours will be selected based on edatopic position
+Special colours/patterns will be assigned to non-forested classes.
+Some links to script descriptions: 
+https://www.datanovia.com/en/blog/how-to-create-beautiful-color-palettes-in-r/
+
+Online colour tool
+http://colorschemedesigner.com/csd-3.5/
+
+
+```{r import BGC units and map_keys, tidy = TRUE, warning=FALSE}
+file_name <- "WNA_SubzoneColours"
+
+document <- xmlParse("WNAv11_Subzones.qml")
+category_nodes <- getNodeSet(document, "//category")
+BGC_zone <- lapply(category_nodes, xmlGetAttr, "value")
+xml_id <- lapply(category_nodes, xmlGetAttr, "symbol")
+BGC_with_xml_id_only <- data.frame(BGC_zone = unlist(BGC_zone), xml_id = unlist(xml_id))
+
+symbol_nodes <- getNodeSet(document, "//symbols//symbol[@name]")
+symbol_id <- sapply(symbol_nodes, xmlGetAttr, "name")
+names(symbol_id) <- sapply(getNodeSet(document, '//symbols//symbol//prop[@k="color"]'), xmlGetAttr, "v")
+
+id_and_colour <- data.frame(id = symbol_id,
+                            cmyk_colour = names(symbol_id), stringsAsFactors = FALSE)
+
+BGCs_with_colours <- BGC_with_xml_id_only %>% 
+  left_join(id_and_colour, by = c("xml_id" = "id"))
+
+BGCs_with_colours <- BGCs_with_colours[, c("BGC_zone","cmyk_colour", "xml_id") ]
+
+
+SUBZONE_COLOURS_KEY <- BGCs_with_colours %>% 
+  mutate(colour = sapply(
+    strsplit(BGCs_with_colours$cmyk_colour, ","),
+    function(x) rgb(x[1], x[2], x[3], maxColorValue = 255)),
+    classification = BGC_zone)
+
+SUBZONE_COLOURS_KEY <- SUBZONE_COLOURS_KEY[, c("classification", "colour")]
+write.csv (SUBZONE_COLOURS_KEY, "WNAv11_Subzone_Colours.csv")
+
+#BGCs <- read.csv(file.path(map_unit_legend, "AllModelled_BGCs_v11.csv")) ### BGC RGB colour will be assigned here manually picked to match the BGC field maps
+#BGCs <- BGCs[!is.na(BGCs),]
+
+
+# alternative to use bc catalogue or another dataset with unique bgc 
+#bec_sf <- bec(class = "sf")
+#bec_sf <- bcdc_query_geodata("0d526b63-812b-444c-b227-418b6fcbbd44")%>%
+#      bcdata::select(c("BG_CODE")) %>% # Treed sites
+#      collect()
+
+```
+
+
+```{r generate .qml file, tidy = TRUE}
+
+alpha = 255
+base = newXMLNode("qgis")
+addAttributes(base,
+              minScale="1e+08",
+              version="0.0.1",
+              maxScale="0",
+              hasScaleBasedVisibilityFlag="0",
+              styleCategories="AllStyleCategories")
+flags <- newXMLNode("flags")
+identifiable <- newXMLNode("Identifiable", 1)
+removable <- newXMLNode("Removable", 1)
+searchable <- newXMLNode("Searchable", 1)
+
+custom_properties <- newXMLNode("customproperties")
+property_a <- newXMLNode("property", attrs = c(value="false",
+                                               key="WMSBackgroundLayer"))
+property_b <- newXMLNode("property", attrs = c(value="false",
+                                               key="WMSPublishDataSourceUrl"))
+property_c <- newXMLNode("property", attrs = c(value="0",
+                                               key="embeddedWidgets/count"))
+property_d <- newXMLNode("property", attrs = c(value="Value",
+                                               key="identify/format"))
+
+pipe <- newXMLNode("pipe")
+raster_renderer <- newXMLNode("rasterrenderer",
+                              attrs = c(band="1",
+                                        type="paletted",
+                                        opacity="1",
+                                        alphaBand="-1"))
+raster_transparency <- newXMLNode("rasterTransparency")
+min_max_origin <- newXMLNode("minMaxOrigin")
+limits <- newXMLNode("limits", "None")
+extent <- newXMLNode("extent", "WholeRaster")
+stat_accuracy <- newXMLNode("statAccuracy", "Estimated")
+cumulative_cut_lower <- newXMLNode("cumulativeCutLower", 0.02)
+cumulative_cut_upper <- newXMLNode("cumulativeCutUpper", 0.98)
+standard_deviation_factor <- newXMLNode("stdDevFactor", 2)
+
+colour_palette <- newXMLNode("colorPalette")
+palette_entry <- lapply(seq_along(colour_coded_table$integercode),function(val){newXMLNode("paletteEntry",
+                                                                                           attrs = c(value = colour_coded_table$integercode[val],
+                                                                                                     alpha = alpha,
+                                                                                                     label = as.character(val),
+                                                                                                     color = colour_coded_table$colour[val]))
+})
+addChildren(colour_palette,palette_entry)
+
+colour_ramp <- newXMLNode("colorramp", attrs = c(type="randomcolors",
+                                                 name="[source]"))
+
+brightness_contrast <- newXMLNode("brightnesscontrast", attrs = c(brightness=0,
+                                                                  contrast=0))
+hue_saturation <- newXMLNode("huesaturation", attrs = c(colorizeStrength=100,
+                                                        saturation=0,
+                                                        colorizeRed=255,
+                                                        grayscaleMode=0,
+                                                        colorizeGreen=128,
+                                                        colorizeBlue=128,
+                                                        colorizeOn=0))
+
+blend_mode <- newXMLNode("blendMode", 0)
+
+addChildren(flags, list(identifiable,
+                        removable,
+                        searchable))
+addChildren(custom_properties, list(property_a,
+                                    property_b,
+                                    property_c,
+                                    property_d))
+addChildren(pipe, list(raster_renderer,
+                       brightness_contrast,
+                       hue_saturation))
+addChildren(raster_renderer, list(raster_transparency,
+                                  min_max_origin,
+                                  colour_palette,
+                                  colour_ramp))
+addChildren(min_max_origin, list(limits,
+                                 extent,
+                                 stat_accuracy,
+                                 cumulative_cut_lower,
+                                 cumulative_cut_upper,
+                                 standard_deviation_factor))
+addChildren(base, list(flags,
+                       custom_properties,
+                       pipe,
+                       blend_mode))
+
+writeLines(saveXML(base), file.path(examples, "example.qml"))
+```
+
+
