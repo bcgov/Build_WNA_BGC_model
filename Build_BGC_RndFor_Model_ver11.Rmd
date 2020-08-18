@@ -111,15 +111,6 @@ write.csv(modelvars, "./outputs/74Var_WNABGCv11.csv", row.names = FALSE)
 ```
 
 
-```{r test machine learning for variables, echo=FALSE}
-
-#    BGCmodel <- ranger(BGC ~ ., data = X3, #do.trace = 10,
-#                            num.trees = 101,   importance = "impurity", splitrule = "extratrees", seed = 12345, write.forest = TRUE, classification = TRUE)#strata=BGC, sampsize= c(500),
-# 
-# BGCmodel
-# 
-
-```
 
 A larger training point set was built from 2 km hex grid of points for western north america. Points are overlayed the WNA Biogeoclimatic map to identify BGC membership.
 ```{r build training point set, cache = TRUE}
@@ -170,6 +161,17 @@ X1$BGC <- as.factor(X1$BGC)
 # modelvars <- as.character(modelvars$x)
 
 ```
+
+
+```{r mahanolobis distance of BGCs}
+X4 <- X1 %>% mutate_if(is.numeric,as.integer) %>% mutate_if(is.factor,as.integer)
+mah <- as.data.table(X4)[BGC %in% c(1,2), mahalanobis.dist(CMD_sp), keyby = BGC]
+
+X4 <- as.data.table(X4)
+mah.dat <- X4 [BGC, mahalanobis.dist(data.x = X4), keyby = BGC]
+
+```
+
 The 1,175,378 training point population is highly imbalanced between the 362 biogeoclimatic subzone/variants. Geographically large BGCs dominate the machine learning model when raw data set are used in the training set. A partial balancing of the raw training point between classes was applied to counteract this effect. Rebalancing is accomplished by log10 scaling the count of points per BGC and then rescaling the log scale to a range of 200 - 2000 training points per BGC.  Large BGCs with raw training sets larger than the rescaled sample are subsampled using conditioned Latin Hypercube Sampling. Geographically restricted BGCs with fewer than required samples are upsampled using the SMOTE routine.   
 ```{r resample training points}
 #Calculate sample number and rescale to semi-balance the training point set
@@ -378,22 +380,22 @@ write.csv (BGCmodel$confusion.matrix, file= paste("./outputs/",fname,"_Confusion
 
 ```{r predict 2km hex}
 #load( "./outputs/WNAv11_9_VAR_SubZone_ranger.Rdata")
-vars <- as.data.frame(BGCmodel$variable.importance)
-vars <- row.names(vars)
-X1 <- fread("./inputs/WNA_2k_HexPts_BGC_Normal_1961_1990MSY.csv", stringsAsFactors = FALSE, data.table = FALSE)
-X1_loc <-  X1 %>% dplyr::select(ID1, Latitude, Longitude, Elevation)
-X1 <- addVars(X1)
-X1 <- X1 %>% dplyr::select(ID1, vars)
-#X1 <- fread("D:/CommonTables/HexGrids/WNAv11_HexGrid_800m_Cleaned_Normal_1961_1990MSY.csv", stringsAsFactors = FALSE, data.table = FALSE)
-
-X1_loc$preds <- predictions(predict(BGCmodel, data = X1[-c(1)]))
-#X.pred2 <- cbind(X1_loc, X.pred$predictions)
-fwrite(X1_loc, "BGC_NormalPeriod_Predicted_20var_new.csv")
-dem <- raster(df)
-projection(dem) <- P4S.albers
-par(mfrow=c(1,1))
-plot(dem)
-sum(!is.na(values(dem)))
+# vars <- as.data.frame(BGCmodel$variable.importance)
+# vars <- row.names(vars)
+# X1 <- fread("./inputs/WNA_2k_HexPts_BGC_Normal_1961_1990MSY.csv", stringsAsFactors = FALSE, data.table = FALSE)
+# X1_loc <-  X1 %>% dplyr::select(ID1, Latitude, Longitude, Elevation)
+# X1 <- addVars(X1)
+# X1 <- X1 %>% dplyr::select(ID1, vars)
+# #X1 <- fread("D:/CommonTables/HexGrids/WNAv11_HexGrid_800m_Cleaned_Normal_1961_1990MSY.csv", stringsAsFactors = FALSE, data.table = FALSE)
+# 
+# X1_loc$preds <- predictions(predict(BGCmodel, data = X1[-c(1)]))
+# #X.pred2 <- cbind(X1_loc, X.pred$predictions)
+# fwrite(X1_loc, "BGC_NormalPeriod_Predicted_20var_new.csv")
+# dem <- raster(df)
+# projection(dem) <- P4S.albers
+# par(mfrow=c(1,1))
+# plot(dem)
+# sum(!is.na(values(dem)))
 
 ```
 
