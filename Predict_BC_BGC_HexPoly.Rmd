@@ -38,6 +38,7 @@ require(expss)
 require(purrr)
 require(forcats)
 require(sf)
+require(StatMatch)
 #require (gstat)
 #install.packages("smotefamily", dependencies = TRUE)
 #data.dir = "./inputs/"
@@ -64,7 +65,7 @@ addVars <- function(dat){
 Points from a 8km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
 
 ```{r read in Hex Grid Climate Data}
-region <- "DND"
+region <- "RKB"
 # bring in grid data with climate attributes
 X <- fread(paste0("./inputs/", region,"_400m_HexPts_Normal_1961_1990MSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in historic period
 X1 <- addVars(X)
@@ -116,7 +117,7 @@ require(lwgeom)
 
 hexpoly <- st_read(dsn = paste0("./hexpolys/", region, "_bgc_hex400.gpkg"))#, layer = "USA_bgc_hex_800m")
 hexpoly$hex_id <- as.character(hexpoly$hex_id)
-hexZone <- left_join(hexpoly, X1.pred, by = c("hex_id" = "ID1"))# %>% st_transform(3005) %>% st_cast()
+hexZone <- left_join(hexpoly, X1.pred, by = c("hex_id" = "ID1"))%>% st_transform(3005) %>% st_cast()
 temp <- hexZone %>% select(BGC, geom)
 temp2 <- st_zm(temp, drop=T, what='ZM') 
 ##unremark for undissolved layer
@@ -131,7 +132,8 @@ st_precision(temp3) <- .5
 temp3$BGC <- forcats::fct_explicit_na(temp3$BGC,na_level = "(None)")
 temp3 <- temp3[,c("BGC","geom")]
 t2 <- aggregate(temp3[,-1], by = list(temp3$BGC), do_union = T, FUN = mean) %>% rename(BGC = Group.1)
-t2 <- st_zm(t2, drop=T, what='ZM') 
+t2 <- st_zm(t2, drop=T, what='ZM') %>% st_transform(3005) %>% st_cast()
+
 t2 <- t2 %>% st_buffer(0)
 #mapView(t2)
 BGC_area <- t2 %>%
@@ -203,3 +205,5 @@ t3 <- t3 %>% st_buffer (0)
 st_write(t3, dsn = paste0("./outputs/", region, "_SubZoneMap_1991_2019_eliminated.gpkg"), driver = "GPKG")
 
 ```
+
+
