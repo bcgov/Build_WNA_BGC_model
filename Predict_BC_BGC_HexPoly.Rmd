@@ -92,7 +92,7 @@ timeperiod = "1991-2019"
 #-----------------------
 
 #X1$BGC <- as.factor(X1$BGC)
-#write.csv(modelvars, "./outputs/AllVar_WNABGCv11.csv", row.names = FALSE)
+write.csv(model_vars, "./outputs/35Var_WNABGCv11.csv", row.names = FALSE)
 #modelvars <- read.csv("./outputs/Final27Var_WNABGCv11.csv")
 
 
