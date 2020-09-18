@@ -64,20 +64,204 @@ addVars <- function(dat){
 Points from a 8km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
 
 ```{r read in Grid Climate Data}
-X <- fread("./inputs/WNA_8000m_HexPts_BGC_Normal_1961_1990MSY.csv", stringsAsFactors = FALSE, data.table = FALSE)#read in historic period
-#  Y <- fread("./inputs/WNA_8000m_HexPts_BGC_15GCM-Ensemble_rcp45MSY.csv", stringsAsFactors = FALSE, data.table = FALSE)#read in future ensemble period
-# # 
-#  X1 <- rbind (X,Y)
+X <- fread("./inputs/WNA_8000m_HexPts_BGC_Normal_1961_1990MSY.csv")#read in historic period
 # # ##remove plot id information
 X1 <- X %>% dplyr:: select(-ID1, -Latitude, -Longitude, -Elevation)
 # 
 # ####Generate additional variables
 X1 <- addVars(X1)
-modelvars <- colnames(X1)
-write.csv(modelvars, "./outputs/AllVar_WNABGCv11.csv", row.names = FALSE)
-#modelvars <- read.csv("./outputs/Final27Var_WNABGCv11.csv")
-#X1 <- X1 %>% dplyr::select(BGC, modelvars$x) %>% drop_na(BGC)
-#X1$BGC <- as.factor(X1$BGC)
+modelvars <- colnames(X1)[-1]
+```
+
+```{r create variable sets}
+vs1 <- modelvars
+month <- c("01", "02", "03", "04", "05", "06","07", "08", "09", "10", "11", "12")
+vs2 <- modelvars[-grep(paste(month, collapse = "|"),modelvars)]
+vs3 <- c("MAT","MCMT","MWMT","TD","MAP","MSP","AHM","SHM","DD_0","DD5","NFFD","bFFP","eFFP",
+         "PAS","EMT","Eref","CMD","Tave_wt","Tave_sm","PPT_wt","PPT_sm")
+X1_no_nzv_pca <- preProcess(X1[,!"BGC"], method = c( "nzv"))
+X1temp <- data.table::copy(X1)
+X1temp[,X1_no_nzv_pca$method$remove := NULL]
+X1temp <- X1temp %>%  na_if(-9999.0) %>% drop_na()
+X_corr <- cor(X1temp[,!"BGC"])
+X1_corr <- findCorrelation(X_corr, cutoff = .90, names = TRUE, verbose = F)
+X1temp[,(X1_corr) := NULL]
+vs4 <- modelvars[modelvars %in% colnames(X1temp)]
+
+control <- rfeControl(functions = rfFuncs, method = "cv", number = 10)
+X1temp <- X1 %>%  na_if(-9999.0) %>% drop_na()
+X1temp[,BGC := as.factor(BGC)]
+res <- rfe(X1temp[,!"BGC"], X1temp[,BGC], sizes = seq(5,50,by = 5), rfeControl = control)
+```
+
+```{r load and prep training data}
+X0 <- fread("./inputs/WNA_2k_HexPts_BGC_Normal_1961_1990MSY.csv")
+X0[X0 == -9999] <- NA
+X0 <- X0[complete.cases(X0),]
+X0 <- addVars(X0)
+X0 <- X0[,c("BGC",vs1), with = F]
+X0[,Num := .N, by = .(BGC)]
+X0_OK <- X0[Num > 250 & Num < 2000,]
+X0[,LogNum := log(Num,base = 10)]
+X0[Num <= 250, New := rescale(LogNum, to = c(50,250))]
+X0[Num >= 2000, New := rescale(LogNum, to = c(2000,3000))]
+X0[,New := as.integer(New)]
+
+X0temp <- X0[Num >= 2000,]
+cl <- makeCluster(detectCores()-2)
+registerDoParallel(cl)
+
+X0_big <- foreach(unit = unique(X0temp$BGC), .combine = rbind, 
+                  .packages = c("clhs","data.table")) %dopar% {
+  cat("Processing",unit,"\n")
+  temp <- X0temp[BGC == unit,]
+  num <- temp$New[1]
+  ##nz <- nearZeroVar(temp, names=T) ##do we need this?
+  lhs <- clhs(temp[,!c("BGC","Num","LogNum","New")],size = num, iter = 5000, use.cpp = T, simple = F)
+  res <- lhs$sampled_data
+  res$BGC <- unit
+  res
+}
+
+X0temp <- X0[Num <= 250,]
+X0_small <- foreach(unit = unique(X0temp$BGC), .combine = rbind, .packages = c("clhs","data.table")) %do% {
+  cat("Processing",unit,"\n")
+  temp <- X0temp[BGC == unit,] %>% mutate_if(is.integer,as.numeric)
+  temp$BGC <- as.numeric(as.factor(temp$BGC))
+  num <- (temp$New[1])/temp$Num[1]
+  temp <- as.data.table(temp)
+  tempSMOTE <- smotefamily::SMOTE(temp[,!c("BGC","Num","LogNum","New")], 
+                             temp$BGC, K = 2, dup_size = ceiling(num))
+  newCases <- temp$New[1] - temp$Num[1]
+  synData <- tempSMOTE$syn_data
+  synData <- synData[sample(1:nrow(synData), size = newCases, replace = F),]
+  synData$class <- NULL
+  synData$BGC <- unit
+  synData
+}
+
+X0_OK[,Num := NULL]
+XAll <- rbind(X0_small,X0_OK,X0_big)
+XAll[,BGC := as.factor(BGC)]
+```
+
+The new rebalanced training set is 310 668 points. This training set is submitted to ranger to generate a final climate model of BGCs for western north america.
+```{r build final ranger model with larger training point size, cache = TRUE, echo=FALSE}
+BGCmodel <- ranger(BGC ~ ., data = XAll, #do.trace = 10, 
+                           num.trees = 101,  seed = 12345, 
+                            splitrule = "extratrees",
+                           importance = "impurity", write.forest = TRUE, classification = TRUE)
+=#strata=BGC, sampsize= c(500),
+
+
+##Simple rF model
+
+# BGCmodel <- randomForest(BGC ~ ., data=X2_final[,-c(1)],  do.trace = 10, 
+#                          ntree=71, na.action=na.omit, importance=TRUE, proximity=FALSE)
+
+BGCmodel
+save(BGCmodel,file="./outputs/WNA_Subzone_AllVars.Rdata")
+v <-as.data.frame(BGCmodel$variable.importance)
+DF <- v %>% tibble::rownames_to_column() %>% rename(w = rowname, v = 'BGCmodel$variable.importance')
+ 
+ ggplot(DF, aes(x=reorder(w,v), y=v,fill=v))+ 
+  geom_bar(stat="identity", position="dodge")+ coord_flip() +
+   ylab("Variable Importance")+
+   xlab("")+
+   ggtitle("Information Value Summary")+
+   guides(fill=F)+
+   scale_fill_gradient(low="red", high="blue")
+
+fname <- "WNA_WHM1_VAR"
+model = "_ranger_18June2020"
+write.csv (BGCmodel$variable.importance, file= paste("./outputs/",fname,"_Importance",model,".csv",sep=""))
+write.csv (BGCmodel$prediction.error, file= paste("./outputs/",fname,"_Error",model,".csv",sep=""))
+write.csv (BGCmodel$confusion.matrix, file= paste("./outputs/",fname,"_ConfusionMatrix",model,".csv",sep=""))
+
+```
+
+
+Old code
+
+```{r predict 2km hex}
+#load( "./outputs/WNAv11_9_VAR_SubZone_ranger.Rdata")
+# vars <- as.data.frame(BGCmodel$variable.importance)
+# vars <- row.names(vars)
+# X1 <- fread("./inputs/WNA_2k_HexPts_BGC_Normal_1961_1990MSY.csv", stringsAsFactors = FALSE, data.table = FALSE)
+# X1_loc <-  X1 %>% dplyr::select(ID1, Latitude, Longitude, Elevation)
+# X1 <- addVars(X1)
+# X1 <- X1 %>% dplyr::select(ID1, vars)
+# #X1 <- fread("D:/CommonTables/HexGrids/WNAv11_HexGrid_800m_Cleaned_Normal_1961_1990MSY.csv", stringsAsFactors = FALSE, data.table = FALSE)
+# 
+# X1_loc$preds <- predictions(predict(BGCmodel, data = X1[-c(1)]))
+# #X.pred2 <- cbind(X1_loc, X.pred$predictions)
+# fwrite(X1_loc, "BGC_NormalPeriod_Predicted_20var_new.csv")
+# dem <- raster(df)
+# projection(dem) <- P4S.albers
+# par(mfrow=c(1,1))
+# plot(dem)
+# sum(!is.na(values(dem)))
+
+```
+
+
+```{r build other ML models}
+
+# Test models between all training points and where outliers removed
+# set.seed(123321)
+# coreNo <- makePSOCKcluster(detectCores() - 1)
+# registerDoParallel(coreNo, cores = detectCores() - 1)
+# Cores <- as.numeric(detectCores()-1)
+# ctrl <- trainControl(method = "cv", number = 10,# repeats = 5,
+#                      classProbs = FALSE, verboseIter = T,
+#                      savePredictions = "final", 
+#                      allowParallel = F)
+# 
+# 
+# #BGCmodel_rang <- train(Zone  ~ ., data = X1_Bio1[-2], #for zone
+# BGCmodel_subz <- train(BGC  ~ ., data = X1_final2[-1], # for subzone
+#                      method = "ranger",
+#                      #preProcess = c("center", "scale", "YeoJohnson"), #,tuneGrid = tgrid,
+#                       trControl = ctrl,
+#                       importance = "impurity")
+# 
+#  stopCluster(coreNo)
+#  gc()
+# 
+# BGCmodel_subz
+# file=paste("./outputs/USA_SubZone_rangercaret_Mar30",".Rdata",sep="")
+# save(BGCmodel_subz,file=file)
+
+# ##Simple rF model
+# BGCmodel <- randomForest(BGC ~ ., data=X1[-1],  do.trace = 10, 
+#                          ntree=151, na.action=na.omit, importance=TRUE, proximity=FALSE)
+# 
+#  save(BGCmodel,file= "./outputs/WNAv11_23_VAR_rf.Rdata")
+# #fname <- "BGCv11_AB_USA_500each_27VAR_SubZone"
+# fname <- "WNA_var23"
+# model = "_rF_01Jan2019"
+# write.csv(BGCmodel$proximity, file= paste("./outputs/", fname,"_Proximity",model,".csv",sep=""))
+# write.csv(BGCmodel$importance, file= paste("./outputs/",fname,"_Importance",model,".csv",sep=""))
+# write.csv(BGCmodel$err.rate, file= paste("./outputs/",fname,"_Error",model,".csv",sep=""))
+# write.csv(BGCmodel$confusion, file= paste("./outputs/",fname,"_ConfusionMatrix",model,".csv",sep=""))
+# write.csv(BGCmodel$confusion[, 'class.error'], file= paste("./outputs/",fname,"_Confusion",model,".csv",sep=""))
+# VIP <- varImpPlot(BGCmodel, sort=TRUE) 
+# varImpPlot(BGCmodel, sort=TRUE) 
+# write.csv(VIP, file= paste("./outputs/",fname,"_OBO",model,".csv",sep=""))
+# dev.copy(pdf,(paste(model,'"./outputs/VarImpPlot.pdf')))
+# dev.off()
+# 
+#  ###caret package version
+# ###Go back to 
+#  set.seed(123321)
+# coreNo <- makeCluster(6)
+# registerDoParallel(coreNo)
+#   control <-trainControl(classProbs = TRUE, allowParallel = TRUE) #method = 'cv', number = 2)#, repeats = 3
+#    BGCmodel_caret <- caret::train(BGC ~ ., data=X1,  method= "rf", trControl = control)#,tuneLength = 2,, mtry = 3,  ntree=31)
+#  print(BGCmodel_caret)
+# stopCluster(coreNo)
+# # gc()
+#save(BGCmodel_caret,file= "./outputs/WNAv11_16VAR_SubZone_caret.Rdata")
 
 ```
 
@@ -110,20 +294,12 @@ write.csv(modelvars, "./outputs/74Var_WNABGCv11.csv", row.names = FALSE)
 
 ```
 
-
-
 A larger training point set was built from 2 km hex grid of points for western north america. Points are overlayed the WNA Biogeoclimatic map to identify BGC membership.
 ```{r build training point set, cache = TRUE}
-X0 <- fread("./inputs/WNA_2k_HexPts_BGC_Normal_1961_1990MSY.csv", stringsAsFactors = FALSE, data.table = FALSE)
-# X1 <- fread("./inputs/WNAv11_2k_HexPts_Normal_1961_1990MSY.csv", stringsAsFactors = FALSE, data.table = FALSE)
-# X1_BGC <- fread("./inputs/WNAv11_2k_HexPts_BGC.csv", stringsAsFactors = FALSE, data.table = FALSE)
-# X1 <- left_join(X1, X1_BGC,   by = c("ID1" = "FID"))
-# X1 <- X1[!(X1$BGC == ""),]
+X0 <- fread("./inputs/WNA_2k_HexPts_BGC_Normal_1961_1990MSY.csv")
+
 X0_loc <-  X0 %>% dplyr::select(ID1, Latitude, Longitude, Elevation)
-# X2 <- fread("./cLHS/WNA_Training_22_VARS.csv", stringsAsFactors = FALSE, data.table = FALSE)
-# X3 <- left_join(X2, X1) %>% dplyr::select(ID1, BGC, Latitude, Longitude, Elevation)
-# write.csv(X3, "LHS_Training_Locations.csv")
-# ####Prepare additional variables
+
 X0 <- addVars(X0)
 ##split a couple of units N/S with tree species implications
 X0 <- X0 %>% 
@@ -264,10 +440,10 @@ LHC_toadd <- X2[X2$BGC %in% LHC_missed,]
 LHC_toadd <- droplevels(LHC_toadd)
 
 ```
- 
+
  Under trained BGC units are upsampled using the SMOTE to add synthetic points up to the number specified in the resampling.
 ``` {r add SMOTE units to those BGCs that are undersampled, cache = TRUE}
-
+X2_Smote <- X0temp
 X2_Smote <- X2[(X2$BGC %in% X2_Few$BGC),]
 X2_Smote <- X2_Smote %>% mutate_if(is.integer,as.numeric) #select(-Latitude, -Longitude, -Zone)
 X2_Smote$BGC  <- as.factor(X2_Smote$BGC)
@@ -337,125 +513,5 @@ X2_final <- droplevels(X2_2)
 countX <- X2_final %>% count(BGC)
 #write.csv(X2_final, "./cLHS/WNA_Training_259_VARS_new.csv", row.names = FALSE)
 #X2_final <-  fread("./cLHS/WNA_Training_9_VARS.csv", data.table = FALSE)
-
-```
-
-The new rebalanced training set is 310 668 points. This training set is submitted to ranger to generate a final climate model of BGCs for western north america.
-```{r build final ranger model with larger training point size, cache = TRUE, echo=FALSE}
-#fread("./cLHS/WNA_Training_20_VARS_new.csv")
-
-
-BGCmodel <- ranger(BGC ~ ., data = X2_final[,-c(1)], #do.trace = 10, 
-                           num.trees = 101,  seed = 12345, 
-                            splitrule = "extratrees",
-                           importance = "impurity", write.forest = TRUE, classification = TRUE)
-#strata=BGC, sampsize= c(500),
-
-
-##Simple rF model
-
-# BGCmodel <- randomForest(BGC ~ ., data=X2_final[,-c(1)],  do.trace = 10, 
-#                          ntree=71, na.action=na.omit, importance=TRUE, proximity=FALSE)
-
-BGCmodel
-save(BGCmodel,file="./outputs/WNAv11_WHM1_VAR_SubZone_ranger.Rdata")
-v <-as.data.frame(BGCmodel$variable.importance)
-DF <- v %>% tibble::rownames_to_column() %>% rename(w = rowname, v = 'BGCmodel$variable.importance')
- 
- ggplot(DF, aes(x=reorder(w,v), y=v,fill=v))+ 
-  geom_bar(stat="identity", position="dodge")+ coord_flip() +
-   ylab("Variable Importance")+
-   xlab("")+
-   ggtitle("Information Value Summary")+
-   guides(fill=F)+
-   scale_fill_gradient(low="red", high="blue")
-
-fname <- "WNA_WHM1_VAR"
-model = "_ranger_18June2020"
-write.csv (BGCmodel$variable.importance, file= paste("./outputs/",fname,"_Importance",model,".csv",sep=""))
-write.csv (BGCmodel$prediction.error, file= paste("./outputs/",fname,"_Error",model,".csv",sep=""))
-write.csv (BGCmodel$confusion.matrix, file= paste("./outputs/",fname,"_ConfusionMatrix",model,".csv",sep=""))
-
-```
-
-```{r predict 2km hex}
-#load( "./outputs/WNAv11_9_VAR_SubZone_ranger.Rdata")
-# vars <- as.data.frame(BGCmodel$variable.importance)
-# vars <- row.names(vars)
-# X1 <- fread("./inputs/WNA_2k_HexPts_BGC_Normal_1961_1990MSY.csv", stringsAsFactors = FALSE, data.table = FALSE)
-# X1_loc <-  X1 %>% dplyr::select(ID1, Latitude, Longitude, Elevation)
-# X1 <- addVars(X1)
-# X1 <- X1 %>% dplyr::select(ID1, vars)
-# #X1 <- fread("D:/CommonTables/HexGrids/WNAv11_HexGrid_800m_Cleaned_Normal_1961_1990MSY.csv", stringsAsFactors = FALSE, data.table = FALSE)
-# 
-# X1_loc$preds <- predictions(predict(BGCmodel, data = X1[-c(1)]))
-# #X.pred2 <- cbind(X1_loc, X.pred$predictions)
-# fwrite(X1_loc, "BGC_NormalPeriod_Predicted_20var_new.csv")
-# dem <- raster(df)
-# projection(dem) <- P4S.albers
-# par(mfrow=c(1,1))
-# plot(dem)
-# sum(!is.na(values(dem)))
-
-```
-
-
-```{r build other ML models}
-
-# Test models between all training points and where outliers removed
-# set.seed(123321)
-# coreNo <- makePSOCKcluster(detectCores() - 1)
-# registerDoParallel(coreNo, cores = detectCores() - 1)
-# Cores <- as.numeric(detectCores()-1)
-# ctrl <- trainControl(method = "cv", number = 10,# repeats = 5,
-#                      classProbs = FALSE, verboseIter = T,
-#                      savePredictions = "final", 
-#                      allowParallel = F)
-# 
-# 
-# #BGCmodel_rang <- train(Zone  ~ ., data = X1_Bio1[-2], #for zone
-# BGCmodel_subz <- train(BGC  ~ ., data = X1_final2[-1], # for subzone
-#                      method = "ranger",
-#                      #preProcess = c("center", "scale", "YeoJohnson"), #,tuneGrid = tgrid,
-#                       trControl = ctrl,
-#                       importance = "impurity")
-# 
-#  stopCluster(coreNo)
-#  gc()
-# 
-# BGCmodel_subz
-# file=paste("./outputs/USA_SubZone_rangercaret_Mar30",".Rdata",sep="")
-# save(BGCmodel_subz,file=file)
-
-# ##Simple rF model
-# BGCmodel <- randomForest(BGC ~ ., data=X1[-1],  do.trace = 10, 
-#                          ntree=151, na.action=na.omit, importance=TRUE, proximity=FALSE)
-# 
-#  save(BGCmodel,file= "./outputs/WNAv11_23_VAR_rf.Rdata")
-# #fname <- "BGCv11_AB_USA_500each_27VAR_SubZone"
-# fname <- "WNA_var23"
-# model = "_rF_01Jan2019"
-# write.csv(BGCmodel$proximity, file= paste("./outputs/", fname,"_Proximity",model,".csv",sep=""))
-# write.csv(BGCmodel$importance, file= paste("./outputs/",fname,"_Importance",model,".csv",sep=""))
-# write.csv(BGCmodel$err.rate, file= paste("./outputs/",fname,"_Error",model,".csv",sep=""))
-# write.csv(BGCmodel$confusion, file= paste("./outputs/",fname,"_ConfusionMatrix",model,".csv",sep=""))
-# write.csv(BGCmodel$confusion[, 'class.error'], file= paste("./outputs/",fname,"_Confusion",model,".csv",sep=""))
-# VIP <- varImpPlot(BGCmodel, sort=TRUE) 
-# varImpPlot(BGCmodel, sort=TRUE) 
-# write.csv(VIP, file= paste("./outputs/",fname,"_OBO",model,".csv",sep=""))
-# dev.copy(pdf,(paste(model,'"./outputs/VarImpPlot.pdf')))
-# dev.off()
-# 
-#  ###caret package version
-# ###Go back to 
-#  set.seed(123321)
-# coreNo <- makeCluster(6)
-# registerDoParallel(coreNo)
-#   control <-trainControl(classProbs = TRUE, allowParallel = TRUE) #method = 'cv', number = 2)#, repeats = 3
-#    BGCmodel_caret <- caret::train(BGC ~ ., data=X1,  method= "rf", trControl = control)#,tuneLength = 2,, mtry = 3,  ntree=31)
-#  print(BGCmodel_caret)
-# stopCluster(coreNo)
-# # gc()
-#save(BGCmodel_caret,file= "./outputs/WNAv11_16VAR_SubZone_caret.Rdata")
 
 ```
