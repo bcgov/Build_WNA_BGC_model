@@ -302,10 +302,10 @@ X0_loc <-  X0 %>% dplyr::select(ID1, Latitude, Longitude, Elevation)
 
 X0 <- addVars(X0)
 ##split a couple of units N/S with tree species implications
-X0 <- X0 %>% 
-    mutate(
-      BGC = if_else(BGC == "MSab" & Latitude >51.5, "MSab_N", 
-       if_else(BGC == "CWHvm1" & Latitude >52, "CWHvm1_PR", BGC)))
+# X0 <- X0 %>% 
+#     mutate(
+#       BGC = if_else(BGC == "MSab" & Latitude >51.5, "MSab_N", 
+#        if_else(BGC == "CWHvm1" & Latitude >52, "CWHvm1_PR", BGC)))
 
 
 modelvars <- read.csv("./outputs/35Var_WNABGCv11.csv") ### from current and future = uncorrelated
