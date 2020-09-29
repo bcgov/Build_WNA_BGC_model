@@ -9,19 +9,26 @@ library(ggplot2)
 
 ##connect to local postgres instance
 drv <- dbDriver("PostgreSQL")
+##kiri
 con <- dbConnect(drv, user = "postgres", host = "localhost",
                  password = "Kiriliny41", port = 5432, dbname = "cciss_data") 
+##will
+con <- dbConnect(drv, user = "postgres", host = "FLNRServer",
+                 password = "Kiriliny41", port = 5432, dbname = "cciss_data") 
 
-hexArea <- 138564.1
-convFact <- hexArea/1e9
+hexArea <- 138564.1 ##area of 1 hex poly
+convFact <- hexArea/1e9 ##convert to units of 1000km^2
 
 src_dbi(con)
-datCon <- tbl(con, "varset_current")
+datCon <- tbl(con, "varset_current") ##table
+
+##summarise and pull predicted data
 dat <- datCon %>%
   group_by(varset,bgc_pred) %>%
   summarise(Num = n()) %>%
   collect()
 
+##summarise and pull actual (historic) data
 datHist <- datCon %>%
   filter(varset == "All") %>%
   group_by(varset,bgc) %>%
@@ -35,34 +42,57 @@ datHist[,varset := "Actual"]
 dat <- as.data.table(dat)
 dat[,Num := Num * convFact]
 setnames(dat, c("varset","bgc","Num"))
-dat <- rbind(dat, datHist)
-
+dat <- rbind(dat, datHist) ##combine
+##create table by subzone
 dt1 <- data.table::dcast(dat, bgc ~ varset, value.var = "Num")
 fwrite(dt1,"VarComp_BC_Sz.csv")
 
+##create table by zone
 dat[,bgc := gsub("[[:lower:]]|[[:digit:]]", "",bgc)]
 dat[,bgc := gsub("_.*", "",bgc)]
-
 dt2 <- data.table::dcast(dat, bgc ~ varset, value.var = "Num", fun.aggregate = sum)
 fwrite(dt2,"VarComp_BC_Zone.csv")
 
+##graph change aspatially
 dat2 <- dat[,.(Num = sum(Num)), by = .(varset,bgc)]
-dat2 <- dat2[Num > 0.001,]
-datAct <- dat2[varset == "Actual",]
+cutoff <- 8 ##create two graphs - cutoff for which graph
+dat2[,Small := if(any(Num > cutoff)) T else F, by = .(bgc)]
+datSmall <- dat2[Small == F,!"Small"]
+datBig <- dat2[Small == T,!"Small"]
+
+###graph of big units
+gDat <- datBig
+datAct <- gDat[varset == "Actual",]
 datAct[,varset := NULL]
 setnames(datAct, c("bgc","Actual"))
-dat2 <- dat2[varset != "Actual",]
-dat2 <- datAct[dat2, on = "bgc"]
-dat2[,Change := Num - Actual]
+gDat <- gDat[varset != "Actual",]
+gDat <- datAct[gDat, on = "bgc"]
+gDat[,Change := Num - Actual]
 
-ggplot(dat2, aes(x = bgc, y = Change, group = varset, fill = varset))+
+ggplot(gDat, aes(x = bgc, y = Change, group = varset, fill = varset))+
   geom_bar(stat = "identity", position = position_dodge())
 
-dat <- datCon %>%
+###graph of small units - mostly coming in from Ab or US
+gDat <- datSmall
+datAct <- gDat[varset == "Actual",]
+datAct[,varset := NULL]
+setnames(datAct, c("bgc","Actual"))
+gDat <- gDat[varset != "Actual",]
+gDat <- datAct[gDat, on = "bgc"]
+gDat[is.na(Actual), Actual := 0]
+gDat[,Change := Num - Actual]
+
+ggplot(gDat, aes(x = bgc, y = Change, group = varset, fill = varset))+
+  geom_bar(stat = "identity", position = position_dodge())
+
+### Spatial change
+dat <- datCon %>% ##pull data
   group_by(varset,bgc,bgc_pred) %>%
   summarise(Num = n()) %>%
   collect()
+
 dat <- as.data.table(dat)
+## only use zones
 dat[,bgc := gsub("[[:lower:]]|[[:digit:]]", "",bgc)]
 dat[,bgc_pred := gsub("[[:lower:]]|[[:digit:]]", "",bgc_pred)]
 dat[,bgc_pred := gsub("_.*", "",bgc_pred)]
@@ -71,6 +101,7 @@ dt2[,Num := Num * convFact]
 dt <- data.table::dcast(dt2, bgc + bgc_pred ~ varset, value.var = "Num")
 fwrite(dt,"VarComp_All_ZoneChange.csv")
 
+### spatial change, just for one district
 datCon <- tbl(con, "varset_current_att")
 dat2 <- datCon %>%
   filter(dist_code == "DSS") %>%
