@@ -104,13 +104,13 @@ fwrite(dt,"VarComp_All_ZoneChange.csv")
 ### spatial change, just for one district
 datCon <- tbl(con, "varset_current_att")
 dat2 <- datCon %>%
-  filter(dist_code == "DSS") %>%
+  filter(dist_code == "DQU") %>%
   group_by(varset,bgc,bgc_pred) %>%
   summarise(Num = n()) %>%
   collect()
 
 dat2 <- as.data.table(dat2)
-dat2 <- dat2[Num > 100,]
+dat2 <- dat2[Num > 100,] ## remove small
 dt <- data.table::dcast(dat2, bgc + bgc_pred ~ varset, value.var = "Num")
 fwrite(dt,"VarComp_DSS_Change.csv")
 
@@ -118,7 +118,19 @@ fwrite(dt,"VarComp_DSS_Change.csv")
 ###Now spatial
 
 datsf <- st_read(con, query = "SELECT siteno,varset,bgc_pred,geom FROM vartest_sf 
-                WHERE dist_code = 'DSS'")
+                WHERE dist_code = 'DQU'")
+
+fname = "DQU_VarTests.gpkg"
+for(var in unique(datsf$varset)){
+  cat("Processing",var,"\n")
+  temp <- datsf[datsf$varset == var,]
+  mapComb <- aggregate(temp[,"geom"],  by = list(temp$bgc_pred), FUN = mean)
+  colnames(mapComb)[1] <- "BGC"
+  st_write(mapComb,dsn = fname, layer = var, append = T)
+}
+
+
+###old####
 dat <- st_drop_geometry(test) %>% as.data.table()
 Num <- dat[,.(Size = .N), by = .(varset,bgc_pred)]
 N2 <- Num[,.(bgc_pred,SizeProp = Size/sum(Size)), by = .(varset)]
