@@ -102,7 +102,7 @@ dt <- data.table::dcast(dt2, bgc + bgc_pred ~ varset, value.var = "Num")
 fwrite(dt,"VarComp_All_ZoneChange.csv")
 
 ### spatial change, just for one district
-District <- 'DSC'
+District <- 'DPC'
 
 datCon <- tbl(con, "varset_current_att")
 dat2 <- datCon %>%
@@ -114,7 +114,7 @@ dat2 <- datCon %>%
 dat2 <- as.data.table(dat2)
 dat2 <- dat2[Num > 100,] ## remove small
 dt <- data.table::dcast(dat2, bgc + bgc_pred ~ varset, value.var = "Num")
-fwrite(dt, paste0("VarComp_",District, "_Change.csv"))
+fwrite(dt, paste0("./outputs/VarComp_",District, "_Change.csv"))
 
 
 ###Now spatial
