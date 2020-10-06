@@ -65,7 +65,7 @@ addVars <- function(dat){
 Points from a 8km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
 
 ```{r read in Hex Grid Climate Data}
-region <- "RKB"
+region <- "RCB"
 # bring in grid data with climate attributes
 X <- fread(paste0("./inputs/", region,"_400m_HexPts_Normal_1961_1990MSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in historic period
 X1 <- addVars(X)
@@ -77,7 +77,7 @@ Y3 <- fread(paste0("./inputs/", region, "_400m_HexPts_Decade_2011_2019MSY.csv"),
 Y <-  rbind (Y1,Y2,Y3)
 Y <- addVars(Y)
 # 
-load("./outputs/WNAv11_35_VAR_SubZone_ranger.Rdata")
+load("./BGC_models/WNA_Subzone_35Var_gini.Rdata")
 model_vars <- as.data.frame(BGCmodel$variable.importance) %>% tibble::rownames_to_column()
 covcount <- count(model_vars)
 X2 <- X1 %>% dplyr::select(ID1, model_vars [,1])# %>% drop_na(BGC)
@@ -92,7 +92,7 @@ timeperiod = "1991-2019"
 #-----------------------
 
 #X1$BGC <- as.factor(X1$BGC)
-write.csv(model_vars, "./outputs/35Var_WNABGCv11.csv", row.names = FALSE)
+#write.csv(model_vars, "./outputs/16Var_gini_WNABGCv11.csv", row.names = FALSE)
 #modelvars <- read.csv("./outputs/Final27Var_WNABGCv11.csv")
 
 
@@ -121,14 +121,14 @@ hexZone <- left_join(hexpoly, X1.pred, by = c("hex_id" = "ID1"))%>% st_transform
 temp <- hexZone %>% select(BGC, geom)
 temp2 <- st_zm(temp, drop=T, what='ZM') 
 ##unremark for undissolved layer
-#st_write(temp2, dsn = "./outputs/RSC_SubZoneMap_400m_undissolved_16June2020.gpkg", driver = "GPKG", delete_dsn = TRUE)
+#st_write(temp2, dsn = paste0("./outputs/", region, "_", "SubZoneMap_hex400_undissolved.gpkg"), driver = "GPKG", delete_dsn = TRUE)
 
-###Dissolve 
-#hexZone <- st_read(dsn = "./outputs/WA_bgc_hex8000_ungrouped.gpkg")#, layer = "USA_bgc_hex_800m") ## need to read it back in to ensure all type Polygon is consistent
+## unremark for Dissolved
+##hexZone <- st_read(dsn = "./outputs/WA_bgc_hex8000_ungrouped.gpkg")#, layer = "USA_bgc_hex_800m") ## need to read it back in to ensure all type Polygon is consistent
 temp3 <- hexZone
 temp3$BGC <- droplevels(temp3$BGC)
-temp3 <-  st_as_sf(temp3)# 
-st_precision(temp3) <- .5 
+temp3 <-  st_as_sf(temp3)#
+st_precision(temp3) <- .5
 temp3$BGC <- forcats::fct_explicit_na(temp3$BGC,na_level = "(None)")
 temp3 <- temp3[,c("BGC","geom")]
 t2 <- aggregate(temp3[,-1], by = list(temp3$BGC), do_union = T, FUN = mean) %>% rename(BGC = Group.1)
@@ -137,10 +137,10 @@ t2 <- st_zm(t2, drop=T, what='ZM') %>% st_transform(3005) %>% st_cast()
 t2 <- t2 %>% st_buffer(0)
 #mapView(t2)
 BGC_area <- t2 %>%
-  mutate(Area = st_area(.)) %>% mutate (Area = Area/1000000) %>% 
+  mutate(Area = st_area(.)) %>% mutate (Area = Area/1000000) %>%
   mutate(ID = seq_along(BGC)) %>% dplyr::select(BGC, Area) %>% st_set_geometry(NULL)
 write.csv(BGC_area, paste0("./outputs/", region, "_", timeperiod, "_", covcount, "_BGC_area_predicted.csv"))
-st_write(t2, dsn = paste0("./outputs/", region, "_", "SubZoneMap_hex400_dissolved.gpkg"), layer = paste0(region, "_", timeperiod, "_", covcount, "_vars"), driver = "GPKG", delete_layer = TRUE)
+st_write(t2, dsn = paste0("./outputs/", region, "_", "SubZoneMap_hex400_dissolved2.gpkg"), layer = paste0(region, "_", timeperiod, "_", covcount, "_vars_gini"), driver = "GPKG", delete_layer = TRUE)
 
 ```
 
