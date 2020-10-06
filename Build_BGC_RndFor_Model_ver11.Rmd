@@ -73,6 +73,15 @@ X1 <- addVars(X1)
 modelvars <- colnames(X1)[-1]
 ```
 
+Create different model variable sets
+v1=all
+v2 = no months
+v3 = Biological Variables
+vs4 = near zero variance and >.90 correlation removed
+vs5 = 16var
+vs6 = 35var
+vs7 = new Will's variables
+
 ```{r create variable sets}
 vs1 <- modelvars
 month <- c("01", "02", "03", "04", "05", "06","07", "08", "09", "10", "11", "12")
@@ -87,11 +96,16 @@ X_corr <- cor(X1temp[,!"BGC"])
 X1_corr <- findCorrelation(X_corr, cutoff = .90, names = TRUE, verbose = F)
 X1temp[,(X1_corr) := NULL]
 vs4 <- modelvars[modelvars %in% colnames(X1temp)]
-
-control <- rfeControl(functions = rfFuncs, method = "cv", number = 10)
-X1temp <- X1 %>%  na_if(-9999.0) %>% drop_na()
-X1temp[,BGC := as.factor(BGC)]
-res <- rfe(X1temp[,!"BGC"], X1temp[,BGC], sizes = seq(5,50,by = 5), rfeControl = control)
+vs5 <- read.csv("./outputs/Model_16Vars.csv") ### from original model
+vs5 <- vs5$x
+vs6 <- read.csv("./outputs/35Var_WNABGCv11.csv") ### from current and future = uncorrelated
+vs6 <- vs6$rowname
+vs7 <- c("MWMT","MSP","SHM","DD5_sp", "DD5_sm","NFFD","bFFP",
+         "PAS","Eref","CMDMax","Tmin_wt","Tave_sm", "CMD.total")
+# control <- rfeControl(functions = rfFuncs, method = "cv", number = 10)
+# X1temp <- X1 %>%  na_if(-9999.0) %>% drop_na()
+# X1temp[,BGC := as.factor(BGC)]
+# res <- rfe(X1temp[,!"BGC"], X1temp[,BGC], sizes = seq(5,50,by = 5), rfeControl = control)
 ```
 
 ```{r load and prep training data}
@@ -99,38 +113,39 @@ X0 <- fread("./inputs/WNA_2k_HexPts_BGC_Normal_1961_1990MSY.csv")
 X0[X0 == -9999] <- NA
 X0 <- X0[complete.cases(X0),]
 X0 <- addVars(X0)
-X0 <- X0[,c("BGC",vs1), with = F]
+X0 <- X0[,c("BGC",vs6), with = F]
+
 X0[,Num := .N, by = .(BGC)]
-X0_OK <- X0[Num > 250 & Num < 2000,]
+X0_OK <- as.data.table(X0[Num > 100 & Num < 500,])
 X0[,LogNum := log(Num,base = 10)]
-X0[Num <= 250, New := rescale(LogNum, to = c(50,250))]
-X0[Num >= 2000, New := rescale(LogNum, to = c(2000,3000))]
+X0[Num <= 100, New := rescale(LogNum, to = c(50,100))]
+X0[Num >= 500, New := rescale(LogNum, to = c(500,1000))]
 X0[,New := as.integer(New)]
 
-X0temp <- X0[Num >= 2000,]
+X0temp <- as.data.table(X0[Num >= 500,])
 cl <- makeCluster(detectCores()-2)
 registerDoParallel(cl)
 
-X0_big <- foreach(unit = unique(X0temp$BGC), .combine = rbind, 
+X0_big <- foreach(unit = unique(X0temp$BGC), .combine = rbind,
                   .packages = c("clhs","data.table")) %dopar% {
   cat("Processing",unit,"\n")
   temp <- X0temp[BGC == unit,]
   num <- temp$New[1]
   ##nz <- nearZeroVar(temp, names=T) ##do we need this?
-  lhs <- clhs(temp[,!c("BGC","Num","LogNum","New")],size = num, iter = 5000, use.cpp = T, simple = F)
+  lhs <- clhs(temp[,!c("BGC","Num","LogNum","New")],size = num, iter = 1000, use.cpp = T, simple = F)
   res <- lhs$sampled_data
   res$BGC <- unit
   res
 }
 
-X0temp <- X0[Num <= 250,]
+X0temp <- as.data.table(X0[Num <= 100,])
 X0_small <- foreach(unit = unique(X0temp$BGC), .combine = rbind, .packages = c("clhs","data.table")) %do% {
   cat("Processing",unit,"\n")
   temp <- X0temp[BGC == unit,] %>% mutate_if(is.integer,as.numeric)
   temp$BGC <- as.numeric(as.factor(temp$BGC))
   num <- (temp$New[1])/temp$Num[1]
   temp <- as.data.table(temp)
-  tempSMOTE <- smotefamily::SMOTE(temp[,!c("BGC","Num","LogNum","New")], 
+  tempSMOTE <- smotefamily::SMOTE(temp[,!c("BGC","Num","LogNum","New")],
                              temp$BGC, K = 2, dup_size = ceiling(num))
   newCases <- temp$New[1] - temp$Num[1]
   synData <- tempSMOTE$syn_data
@@ -142,16 +157,18 @@ X0_small <- foreach(unit = unique(X0temp$BGC), .combine = rbind, .packages = c("
 
 X0_OK[,Num := NULL]
 XAll <- rbind(X0_small,X0_OK,X0_big)
+XAll <- as.data.table(XAll)
 XAll[,BGC := as.factor(BGC)]
 ```
 
 The new rebalanced training set is 310 668 points. This training set is submitted to ranger to generate a final climate model of BGCs for western north america.
 ```{r build final ranger model with larger training point size, cache = TRUE, echo=FALSE}
-BGCmodel <- ranger(BGC ~ ., data = XAll, #do.trace = 10, 
+#X0[,BGC := as.factor(BGC)]
+BGCmodel <- ranger(BGC ~ ., data = XAll, 
                            num.trees = 101,  seed = 12345, 
-                            splitrule = "extratrees",
+                            splitrule =  "extratrees", #""gini",
                            importance = "impurity", write.forest = TRUE, classification = TRUE)
-=#strata=BGC, sampsize= c(500),
+#=#strata=BGC, sampsize= c(500),do.trace = 10, 
 
 
 ##Simple rF model
@@ -160,7 +177,7 @@ BGCmodel <- ranger(BGC ~ ., data = XAll, #do.trace = 10,
 #                          ntree=71, na.action=na.omit, importance=TRUE, proximity=FALSE)
 
 BGCmodel
-save(BGCmodel,file="./outputs/WNA_Subzone_AllVars.Rdata")
+save(BGCmodel,file="./BGC_models/WNA_Subzone_35Var_extratree.Rdata")
 v <-as.data.frame(BGCmodel$variable.importance)
 DF <- v %>% tibble::rownames_to_column() %>% rename(w = rowname, v = 'BGCmodel$variable.importance')
  
@@ -172,9 +189,9 @@ DF <- v %>% tibble::rownames_to_column() %>% rename(w = rowname, v = 'BGCmodel$v
    guides(fill=F)+
    scale_fill_gradient(low="red", high="blue")
 
-fname <- "WNA_WHM1_VAR"
-model = "_ranger_18June2020"
-write.csv (BGCmodel$variable.importance, file= paste("./outputs/",fname,"_Importance",model,".csv",sep=""))
+fname <- "35_VAR2"
+model = "_ranger_6Oct2020"
+write.csv (BGCmodel$variable.importance, file= paste("./outputs/",fname,"_Importance_extratrees",model,".csv",sep=""))
 write.csv (BGCmodel$prediction.error, file= paste("./outputs/",fname,"_Error",model,".csv",sep=""))
 write.csv (BGCmodel$confusion.matrix, file= paste("./outputs/",fname,"_ConfusionMatrix",model,".csv",sep=""))
 
