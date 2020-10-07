@@ -102,6 +102,22 @@ vs6 <- read.csv("./outputs/35Var_WNABGCv11.csv") ### from current and future = u
 vs6 <- vs6$rowname
 vs7 <- c("MWMT","MSP","SHM","DD5_sp", "DD5_sm","NFFD","bFFP",
          "PAS","Eref","CMDMax","Tmin_wt","Tave_sm", "CMD.total")
+vs8 <- c("Tave_at","MWMT", "DD5_at",   "DD5_sm",   "DD5_sp", "DD5_wt",
+            "Eref_sm",   "Eref_sp",
+         "Tmin_wt", "MCMT","Tmin_sp",
+         "PPT_JAS",  "PPT_MJ",  "PPT_sm","MSP","PPT_sp",
+         "CMD_sp","CMD_at", "CMD.def", "CMDMax","CMD","CMD.total","SHM","AHM",
+          "Tmax_sp", "Tmax_sm", 
+          "bFFP",  "eFFP",  "NFFD", 
+          "PAS_wt",  "PAS_at",  "PAS_sp", "PPT_wt","PPT.dormant","PAS_sm") 
+vs9 <- c("MWMT", "DD5_at",   "DD5_sm",   "DD5_sp",#, "DD5_wt","Tave_at",
+            "Eref_sm",   "Eref_sp",
+        #"tmin07", # "Tmin_wt", "MCMT","Tmin_sp",
+         "PPT_sm","MSP","PPT_sp",# "PPT_JAS",  "PPT_MJ",  
+         "CMD_sp", "CMDMax","CMD.total","SHM","AHM",#,"CMD_at", "CMD.def""CMD",
+          "Tmax_sp", "Tmax_sm",# "tmax07", 
+          "NFFD") #"bFFP",  "eFFP",  
+          #"PAS_sp") #,"PAS_sm","PPT.dormant"PAS_wt",  "PAS_at", "PPT_wt" 
 # control <- rfeControl(functions = rfFuncs, method = "cv", number = 10)
 # X1temp <- X1 %>%  na_if(-9999.0) %>% drop_na()
 # X1temp[,BGC := as.factor(BGC)]
@@ -113,7 +129,7 @@ X0 <- fread("./inputs/WNA_2k_HexPts_BGC_Normal_1961_1990MSY.csv")
 X0[X0 == -9999] <- NA
 X0 <- X0[complete.cases(X0),]
 X0 <- addVars(X0)
-X0 <- X0[,c("BGC",vs6), with = F]
+X0 <- X0[,c("BGC",vs9), with = F]
 
 X0[,Num := .N, by = .(BGC)]
 X0_OK <- as.data.table(X0[Num > 100 & Num < 500,])
@@ -177,7 +193,7 @@ BGCmodel <- ranger(BGC ~ ., data = XAll,
 #                          ntree=71, na.action=na.omit, importance=TRUE, proximity=FALSE)
 
 BGCmodel
-save(BGCmodel,file="./BGC_models/WNA_Subzone_35Var_extratree.Rdata")
+save(BGCmodel,file="./BGC_models/WNA_Subzone_17Var_extratree.Rdata")
 v <-as.data.frame(BGCmodel$variable.importance)
 DF <- v %>% tibble::rownames_to_column() %>% rename(w = rowname, v = 'BGCmodel$variable.importance')
  
@@ -189,9 +205,9 @@ DF <- v %>% tibble::rownames_to_column() %>% rename(w = rowname, v = 'BGCmodel$v
    guides(fill=F)+
    scale_fill_gradient(low="red", high="blue")
 
-fname <- "35_VAR2"
+fname <- "new_17VAR"
 model = "_ranger_6Oct2020"
-write.csv (BGCmodel$variable.importance, file= paste("./outputs/",fname,"_Importance_extratrees",model,".csv",sep=""))
+write.csv (BGCmodel$variable.importance, file= paste("./outputs/",fname,"_Importance_xtra",model,".csv",sep=""))
 write.csv (BGCmodel$prediction.error, file= paste("./outputs/",fname,"_Error",model,".csv",sep=""))
 write.csv (BGCmodel$confusion.matrix, file= paste("./outputs/",fname,"_ConfusionMatrix",model,".csv",sep=""))
 
