@@ -77,7 +77,7 @@ Y3 <- fread(paste0("./inputs/", region, "_400m_HexPts_Decade_2011_2019MSY.csv"),
 Y <-  rbind (Y1,Y2,Y3)
 Y <- addVars(Y)
 # 
-load("./BGC_models/WNA_Subzone_35Var_gini.Rdata")
+load("./BGC_models/WNA_Subzone_17Var_extratree.Rdata")
 model_vars <- as.data.frame(BGCmodel$variable.importance) %>% tibble::rownames_to_column()
 covcount <- count(model_vars)
 X2 <- X1 %>% dplyr::select(ID1, model_vars [,1])# %>% drop_na(BGC)
