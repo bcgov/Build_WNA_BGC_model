@@ -25,6 +25,22 @@ vector<int> calcDepth(vector<int> nodes, vector<int> lchild, vector<int> rchild)
 }
 
 // [[Rcpp::export]]
+void subtreePreds(vector<int> node, vector<int> lchild, 
+                          vector<int> rchild, StringVector Preds, int root){
+  if(!StringVector::is_na(Preds[root])){
+    Rcout << Preds[root] << " ";
+    return;
+  }
+  if(StringVector::is_na(Preds[root])){
+    vector<int>::iterator it = find(node.begin()+root,node.end(),lchild[root]);
+    subtreePreds(node,lchild,rchild,Preds,it-node.begin());
+    it = find(node.begin()+root,node.end(),rchild[root]);
+    subtreePreds(node,lchild,rchild,Preds,it-node.begin());
+  }
+  
+}
+
+// [[Rcpp::export]]
 IntegerVector findSplit(vector<int> node, vector<int> lchild, vector<int> rchild, 
                         vector<int> initNodes, int cutoff){
   long currNd;

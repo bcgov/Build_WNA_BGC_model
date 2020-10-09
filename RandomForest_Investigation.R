@@ -98,6 +98,24 @@ noMonthTest <- table(idfOut$splitvarName)
 noMonthTest <- noMonthTest[noMonthTest > 2]
 bioClimTest <- bioClimTest[bioClimTest > 7]
 
+temp <- treeInfo(mod1,tree = 4)
+temp$prediction <- as.character(temp$prediction)
+starts <- temp$nodeID[grep("CWHws2",temp$prediction)]
+rnodes <- findSplit(temp$nodeID,temp$leftChild,temp$rightChild,initNode = starts,cutoff = length(starts))
+rnodes <- unique(rnodes)
+
+roots = c(temp$leftChild[rnodes[1]+1],temp$rightChild[rnodes[1]+1])
+roots <- c(75,76)
+for(r in roots){
+  testout <- capture.output(subtreePreds(temp$nodeID,temp$leftChild,temp$rightChild,temp$prediction,root = r))
+  testout <- strsplit(testout," +")
+  testout <- testout[[1]]
+  tab <- table(testout)
+  tab <- tab[names(tab) %in% c("IDFdk1","CWHws2")]
+  print(tab)
+}
+
+
 rf <- ranger(Species ~ ., data = iris)
 temp <- treeInfo(rf, 1)
 temp$prediction <- as.character(temp$prediction)
