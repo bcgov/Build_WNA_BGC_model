@@ -129,13 +129,12 @@ X0 <- fread("./inputs/WNA_2k_HexPts_BGC_Normal_1961_1990MSY.csv")
 X0[X0 == -9999] <- NA
 X0 <- X0[complete.cases(X0),]
 X0 <- addVars(X0)
-X0 <- X0[,c("BGC",vs9), with = F]
-
+X0 <- X0[,c("BGC",vs3), with = F]
 X0[,Num := .N, by = .(BGC)]
 X0_OK <- as.data.table(X0[Num > 100 & Num < 500,])
 X0[,LogNum := log(Num,base = 10)]
-X0[Num <= 100, New := rescale(LogNum, to = c(50,100))]
-X0[Num >= 500, New := rescale(LogNum, to = c(500,1000))]
+X0[Num <= 100, New := scales::rescale(LogNum, to = c(50,100))]
+X0[Num >= 500, New := scales::rescale(LogNum, to = c(500,1000))]
 X0[,New := as.integer(New)]
 
 X0temp <- as.data.table(X0[Num >= 500,])
@@ -184,16 +183,29 @@ BGCmodel <- ranger(BGC ~ ., data = XAll,
                            num.trees = 101,  seed = 12345, 
                             splitrule =  "extratrees", #""gini",
                            importance = "impurity", write.forest = TRUE, classification = TRUE)
+
+test <- treeInfo(BGCmodel,1)
 #=#strata=BGC, sampsize= c(500),do.trace = 10, 
 
 
 ##Simple rF model
 
-# BGCmodel <- randomForest(BGC ~ ., data=X2_final[,-c(1)],  do.trace = 10, 
-#                          ntree=71, na.action=na.omit, importance=TRUE, proximity=FALSE)
+
+BGCmodel2 <- randomForest(BGC ~ ., data=XAll,  do.trace = 10,
+                         ntree=101, na.action=na.omit, importance=TRUE, 
+                         proximity=FALSE, keep.forest = T, localImp = T)
+
+library(randomForestExplainer)
+min_depth_frame <- min_depth_distribution(BGCmodel2)
+explain_forest(BGCmodel2)
+
+library(reprtree)
+rtree <- ReprTree(BGCmodel2,)
+reprtree:::plot.getTree(BGCmodel2)
+
 
 BGCmodel
-save(BGCmodel,file="./BGC_models/WNA_Subzone_17Var_extratree.Rdata")
+save(BGCmodel,file="./outputs/WNA_Subzone_BioClim.Rdata")
 v <-as.data.frame(BGCmodel$variable.importance)
 DF <- v %>% tibble::rownames_to_column() %>% rename(w = rowname, v = 'BGCmodel$variable.importance')
  

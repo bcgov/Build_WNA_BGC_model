@@ -65,7 +65,7 @@ addVars <- function(dat){
 Points from a 8km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
 
 ```{r read in Hex Grid Climate Data}
-region <- "RCB"
+region <- "DND"
 # bring in grid data with climate attributes
 X <- fread(paste0("./inputs/", region,"_400m_HexPts_Normal_1961_1990MSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in historic period
 X1 <- addVars(X)
@@ -77,8 +77,10 @@ Y3 <- fread(paste0("./inputs/", region, "_400m_HexPts_Decade_2011_2019MSY.csv"),
 Y <-  rbind (Y1,Y2,Y3)
 Y <- addVars(Y)
 # 
-load("./BGC_models/WNA_Subzone_17Var_extratree.Rdata")
+load("./outputs/WNA_Subzone_BioClim.Rdata")
+#BGCmodel <- BGCmodel2
 model_vars <- as.data.frame(BGCmodel$variable.importance) %>% tibble::rownames_to_column()
+#model_vars <- as.data.frame(BGCmodel$importance) %>% tibble::rownames_to_column()
 covcount <- count(model_vars)
 X2 <- X1 %>% dplyr::select(ID1, model_vars [,1])# %>% drop_na(BGC)
 timeperiod = "1961-1990"
@@ -104,6 +106,9 @@ timeperiod = "1991-2019"
 ###Predict
 grid.pred <- predict(BGCmodel, data = X2[,-c(1)])
 BGC <- as.data.frame(grid.pred$predictions) %>% rename("BGC" = "grid.pred$predictions")
+# X1.pred <- X2
+# X1.pred$BGC <- predict(BGCmodel, newdata = X1.pred)
+# X1.pred <- X1.pred[,.(ID1,BGC)]
 X1.pred <- cbind(X2, BGC) %>% select(ID1, BGC)
 X1.pred$BGC <-  fct_explicit_na(X1.pred$BGC , na_level = "(None)")
 X1.pred$ID1 <- as.character(X1.pred$ID1)
@@ -115,7 +120,7 @@ X1.pred$ID1 <- as.character(X1.pred$ID1)
 require(lwgeom)
 ##############link predicted Zones to Polygons and write shape file
 
-hexpoly <- st_read(dsn = paste0("./hexpolys/", region, "_bgc_hex400.gpkg"))#, layer = "USA_bgc_hex_800m")
+hexpoly <- st_read(dsn = paste0("./inputs/", region, "_bgc_hex400.gpkg"))#, layer = "USA_bgc_hex_800m")
 hexpoly$hex_id <- as.character(hexpoly$hex_id)
 hexZone <- left_join(hexpoly, X1.pred, by = c("hex_id" = "ID1"))%>% st_transform(3005) %>% st_cast()
 temp <- hexZone %>% select(BGC, geom)
@@ -140,7 +145,7 @@ BGC_area <- t2 %>%
   mutate(Area = st_area(.)) %>% mutate (Area = Area/1000000) %>%
   mutate(ID = seq_along(BGC)) %>% dplyr::select(BGC, Area) %>% st_set_geometry(NULL)
 write.csv(BGC_area, paste0("./outputs/", region, "_", timeperiod, "_", covcount, "_BGC_area_predicted.csv"))
-st_write(t2, dsn = paste0("./outputs/", region, "_", "SubZoneMap_hex400_dissolved2.gpkg"), layer = paste0(region, "_", timeperiod, "_", covcount, "_vars_gini"), driver = "GPKG", delete_layer = TRUE)
+st_write(t2, dsn = paste0("./outputs/", region, "_", "SubZoneMap_hex400_dissolved2.gpkg"), layer = paste0(region, "_", timeperiod, "_", covcount, "_new_BioClim"), driver = "GPKG", delete_layer = TRUE)
 
 ```
 
