@@ -129,7 +129,7 @@ X0 <- fread("./inputs/WNA_2k_HexPts_BGC_Normal_1961_1990MSY.csv")
 X0[X0 == -9999] <- NA
 X0 <- X0[complete.cases(X0),]
 X0 <- addVars(X0)
-X0 <- X0[,c("BGC",vs3), with = F]
+X0 <- X0[,c("BGC",vs2), with = F]
 X0[,Num := .N, by = .(BGC)]
 X0_OK <- as.data.table(X0[Num > 100 & Num < 500,])
 X0[,LogNum := log(Num,base = 10)]
@@ -205,7 +205,7 @@ reprtree:::plot.getTree(BGCmodel2)
 
 
 BGCmodel
-save(BGCmodel,file="./outputs/WNA_Subzone_BioClim.Rdata")
+save(BGCmodel,file="./outputs/WNA_Subzone_NoMonth_ranger3.Rdata")
 v <-as.data.frame(BGCmodel$variable.importance)
 DF <- v %>% tibble::rownames_to_column() %>% rename(w = rowname, v = 'BGCmodel$variable.importance')
  

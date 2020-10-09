@@ -79,8 +79,8 @@ Y <- addVars(Y)
 # 
 load("./outputs/WNA_Subzone_BioClim.Rdata")
 #BGCmodel <- BGCmodel2
-model_vars <- as.data.frame(BGCmodel$variable.importance) %>% tibble::rownames_to_column()
-#model_vars <- as.data.frame(BGCmodel$importance) %>% tibble::rownames_to_column()
+#model_vars <- as.data.frame(BGCmodel$variable.importance) %>% tibble::rownames_to_column()
+model_vars <- as.data.frame(BGCmodel2$importance) %>% tibble::rownames_to_column()
 covcount <- count(model_vars)
 X2 <- X1 %>% dplyr::select(ID1, model_vars [,1])# %>% drop_na(BGC)
 timeperiod = "1961-1990"
@@ -107,7 +107,7 @@ timeperiod = "1991-2019"
 grid.pred <- predict(BGCmodel, data = X2[,-c(1)])
 BGC <- as.data.frame(grid.pred$predictions) %>% rename("BGC" = "grid.pred$predictions")
 # X1.pred <- X2
-# X1.pred$BGC <- predict(BGCmodel, newdata = X1.pred)
+# X1.pred$BGC <- predict(BGCmodel2, newdata = X1.pred)
 # X1.pred <- X1.pred[,.(ID1,BGC)]
 X1.pred <- cbind(X2, BGC) %>% select(ID1, BGC)
 X1.pred$BGC <-  fct_explicit_na(X1.pred$BGC , na_level = "(None)")
@@ -145,7 +145,7 @@ BGC_area <- t2 %>%
   mutate(Area = st_area(.)) %>% mutate (Area = Area/1000000) %>%
   mutate(ID = seq_along(BGC)) %>% dplyr::select(BGC, Area) %>% st_set_geometry(NULL)
 write.csv(BGC_area, paste0("./outputs/", region, "_", timeperiod, "_", covcount, "_BGC_area_predicted.csv"))
-st_write(t2, dsn = paste0("./outputs/", region, "_", "SubZoneMap_hex400_dissolved2.gpkg"), layer = paste0(region, "_", timeperiod, "_", covcount, "_new_BioClim"), driver = "GPKG", delete_layer = TRUE)
+st_write(t2, dsn = paste0("./outputs/", region, "_", "SubZoneMap_hex400_dissolved2.gpkg"), layer = paste0(region, "_", timeperiod, "_", covcount, "_ranger_NoMonth3"), driver = "GPKG", delete_layer = TRUE)
 
 ```
 

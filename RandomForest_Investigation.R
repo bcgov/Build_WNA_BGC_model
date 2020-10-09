@@ -68,6 +68,22 @@ splitFactor <- function(rfMod,focalUnit){
     rnodes <- findSplit(temp$nodeID,temp$leftChild,temp$rightChild,initNode = starts,cutoff = length(starts))
     if(length(rnodes) > 0){
       rnodes <- unique(rnodes)
+      byRoot <- foreach(rnode = rnodes, .combine = rbind) %do% {
+        roots = c(temp$leftChild[rnode+1],temp$rightChild[rnode+1])
+        tempres <- 1
+        for(r in roots){
+          testout <- capture.output(subtreePreds(temp$nodeID,temp$leftChild,temp$rightChild,temp$prediction,root = r))
+          testout <- strsplit(testout," +")
+          testout <- testout[[1]]
+          tab <- table(testout)
+          tab <- tab[names(tab) %in% c("SBSmc2","IDFdk1")]
+          tempres <- tempres*(min(tab)/max(tab))
+        }
+        t1 <- temp[temp$nodeID == rnode,]
+        t1$Clean <- tempres
+        t1
+      }
+      
       out <- temp[temp$nodeID %in% rnodes,]
       out$Tree <- t
       out
@@ -98,14 +114,14 @@ noMonthTest <- table(idfOut$splitvarName)
 noMonthTest <- noMonthTest[noMonthTest > 2]
 bioClimTest <- bioClimTest[bioClimTest > 7]
 
-temp <- treeInfo(mod1,tree = 4)
+temp <- treeInfo(mod3,tree = 1)
 temp$prediction <- as.character(temp$prediction)
 starts <- temp$nodeID[grep("CWHws2",temp$prediction)]
 rnodes <- findSplit(temp$nodeID,temp$leftChild,temp$rightChild,initNode = starts,cutoff = length(starts))
 rnodes <- unique(rnodes)
 
-roots = c(temp$leftChild[rnodes[1]+1],temp$rightChild[rnodes[1]+1])
-roots <- c(75,76)
+roots = c(temp$leftChild[rnodes[2]+1],temp$rightChild[rnodes[2]+1])
+#roots <- c(309,310)
 for(r in roots){
   testout <- capture.output(subtreePreds(temp$nodeID,temp$leftChild,temp$rightChild,temp$prediction,root = r))
   testout <- strsplit(testout," +")
@@ -114,6 +130,12 @@ for(r in roots){
   tab <- tab[names(tab) %in% c("IDFdk1","CWHws2")]
   print(tab)
 }
+
+testout <- capture.output(subtreePreds(temp$nodeID,temp$leftChild,temp$rightChild,temp$prediction,root = 0))
+testout <- strsplit(testout," +")
+testout <- testout[[1]]
+tab <- table(testout)
+tab <- tab[names(tab) %in% c("IDFdk1","CWHws2")]
 
 
 rf <- ranger(Species ~ ., data = iris)
