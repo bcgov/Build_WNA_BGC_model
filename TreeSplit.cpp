@@ -25,20 +25,35 @@ vector<int> calcDepth(vector<int> nodes, vector<int> lchild, vector<int> rchild)
 }
 
 // [[Rcpp::export]]
-void subtreePreds(vector<int> node, vector<int> lchild, 
-                          vector<int> rchild, StringVector Preds, int root){
+vector<std::string> subtreePreds(vector<int> node, vector<int> lchild, 
+                            vector<int> rchild, vector<std::string> out, StringVector Preds, int root){
   if(!StringVector::is_na(Preds[root])){
-    Rcout << Preds[root] << " ";
-    return;
+    std::string x = Rcpp::as<string>(Preds[root]);
+    out.push_back(x);
+    return out;
+  }else{
+    vector<int>::iterator it = lower_bound(node.begin()+root,node.end(),lchild[root]);
+    vector<string> out1 = subtreePreds(node,lchild,rchild,out,Preds,it-node.begin());
+    it = lower_bound(node.begin()+root,node.end(),rchild[root]);
+    vector<string> out2 = subtreePreds(node,lchild,rchild,out,Preds,it-node.begin());
+    out.reserve(out1.size() + out2.size());
+    out.insert(out.end(),out1.begin(), out1.end());
+    out.insert(out.end(),out2.begin(), out2.end());
+    return(out);
   }
-  if(StringVector::is_na(Preds[root])){
-    vector<int>::iterator it = find(node.begin()+root,node.end(),lchild[root]);
-    subtreePreds(node,lchild,rchild,Preds,it-node.begin());
-    it = find(node.begin()+root,node.end(),rchild[root]);
-    subtreePreds(node,lchild,rchild,Preds,it-node.begin());
-  }
-  
 }
+
+// [[Rcpp::export]]
+StringVector printSubtree(vector<int> node, vector<int> lchild,
+                            vector<int> rchild, StringVector Preds, int root){
+  vector<string> out;
+  vector<string> res = subtreePreds(node,lchild,rchild,out,Preds,root);
+  StringVector res2(res.size());
+  res2 = res;
+  return(res2);
+}
+
+
 
 // [[Rcpp::export]]
 IntegerVector findSplit(vector<int> node, vector<int> lchild, vector<int> rchild, 

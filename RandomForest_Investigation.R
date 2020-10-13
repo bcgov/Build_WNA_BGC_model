@@ -62,39 +62,41 @@ fwrite(allStats,"RangerMinVarDepth.csv")
 splitFactor <- function(rfMod,focalUnit){
   idfOut <- foreach(t = 1:101, .combine = rbind) %do% {
     cat(".")
-    temp <- treeInfo(rfMod,tree = t)
+    temp <- treeInfo(rfMod,tree = t) %>% as.data.table()
     temp$prediction <- as.character(temp$prediction)
     starts <- temp$nodeID[grep(focalUnit,temp$prediction)]
     rnodes <- findSplit(temp$nodeID,temp$leftChild,temp$rightChild,initNode = starts,cutoff = length(starts))
     if(length(rnodes) > 0){
       rnodes <- unique(rnodes)
-      byRoot <- foreach(rnode = rnodes, .combine = rbind) %do% {
-        roots = c(temp$leftChild[rnode+1],temp$rightChild[rnode+1])
-        tempres <- 1
-        for(r in roots){
-          testout <- capture.output(subtreePreds(temp$nodeID,temp$leftChild,temp$rightChild,temp$prediction,root = r))
-          testout <- strsplit(testout," +")
-          testout <- testout[[1]]
-          tab <- table(testout)
-          tab <- tab[names(tab) %in% c("SBSmc2","IDFdk1")]
-          tempres <- tempres*(min(tab)/max(tab))
-        }
-        t1 <- temp[temp$nodeID == rnode,]
-        t1$Clean <- tempres
-        t1
-      }
-      
-      out <- temp[temp$nodeID %in% rnodes,]
-      out$Tree <- t
+      allRnode <- rnodes[length(rnodes)]
+      spl <- temp[leftChild == allRnode | rightChild == allRnode,splitvarName]
+      out <- data.table(Tree = t, SplitVar = spl)
       out
     }else{
       NULL
     }
   }
-  freq <- table(idfOut$splitvarName)
-  freq <- freq[freq > quantile(freq, 0.5)]
+  freq <- table(idfOut$SplitVar)
   return(freq)
 }
+
+modList = list(mod1,mod2,mod3)
+modNames = c("NoMonth","BioClim","17Var")
+units <- c("SBSmc2","CWHws2","IDFdk1")
+outAll <- foreach(fUnit = units, .combine = rbind) %do% {
+  outUn <- foreach(mod = modList, name = modNames, .combine = rbind) %do% {
+    fr <- splitFactor(mod, fUnit)
+    fr <- fr[fr > quantile(fr,0.8)]
+    dt <- as.data.table(fr)
+    setnames(dt,c("Var","Freq"))
+    dt[,Model := name]
+  }
+  outUn[,FocalUnit := fUnit]
+  outUn
+}
+
+splits <- data.table::dcast(outAll,Var + FocalUnit ~ Model, value.var = "Freq")
+
 sf17var <- splitFactor(mod3,focalUnit = "IDFdk1")
 sf17var <- as.data.table(sf17var)
 setnames(sf17var, old = "N", new = "Var17")
@@ -114,20 +116,21 @@ noMonthTest <- table(idfOut$splitvarName)
 noMonthTest <- noMonthTest[noMonthTest > 2]
 bioClimTest <- bioClimTest[bioClimTest > 7]
 
-temp <- treeInfo(mod3,tree = 1)
+temp <- treeInfo(mod3,tree = 2)
 temp$prediction <- as.character(temp$prediction)
-starts <- temp$nodeID[grep("CWHws2",temp$prediction)]
+starts <- temp$nodeID[grep("SBSmc2",temp$prediction)]
 rnodes <- findSplit(temp$nodeID,temp$leftChild,temp$rightChild,initNode = starts,cutoff = length(starts))
 rnodes <- unique(rnodes)
 
-roots = c(temp$leftChild[rnodes[2]+1],temp$rightChild[rnodes[2]+1])
-#roots <- c(309,310)
+roots = c(temp$leftChild[rnodes[1]+1],temp$rightChild[rnodes[1]+1])
+roots <- c(21,22)
 for(r in roots){
+  testout <- printSubtree(temp$nodeID,temp$leftChild,temp$rightChild,temp$prediction,root = r)
   testout <- capture.output(subtreePreds(temp$nodeID,temp$leftChild,temp$rightChild,temp$prediction,root = r))
   testout <- strsplit(testout," +")
   testout <- testout[[1]]
   tab <- table(testout)
-  tab <- tab[names(tab) %in% c("IDFdk1","CWHws2")]
+  tab <- tab[names(tab) %in% c("SBSmc2","SBSdk")]
   print(tab)
 }
 
