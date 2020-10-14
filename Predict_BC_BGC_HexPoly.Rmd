@@ -91,9 +91,11 @@ fwrite(dat, "DND_EnsembleDat.csv")
 
 ```{r read in Hex Grid Climate Data}
 region <- "DND"
-timeperiod <- 2025
+timeperiod <- 2055
 scn <- "rcp45"
-load("./outputs/WNA_Subzone_17Var_extratree.Rdata")
+load("./outputs/WNA_Subzone_NoMonth.Rdata")
+model_vars <- as.data.frame(BGCmodel$variable.importance) %>% tibble::rownames_to_column()
+covcount <- count(model_vars)
 
 if(timeperiod %in% c(2025,2055,2085)){
   dat <- fread("./inputs/DND_EnsembleDat.csv")
@@ -114,8 +116,8 @@ addVars(Y)
 # 
 
 #BGCmodel <- BGCmodel2
-#model_vars <- as.data.frame(BGCmodel$variable.importance) %>% tibble::rownames_to_column()
-model_vars <- as.data.frame(BGCmodel2$importance) %>% tibble::rownames_to_column()
+model_vars <- as.data.frame(BGCmodel$variable.importance) %>% tibble::rownames_to_column()
+#model_vars <- as.data.frame(BGCmodel2$importance) %>% tibble::rownames_to_column()
 covcount <- count(model_vars)
 X2 <- X1 %>% dplyr::select(ID1, model_vars [,1])# %>% drop_na(BGC)
 timeperiod = "1961-1990"
@@ -151,8 +153,6 @@ setnames(BGC, c("ID1","BGC"))
 #X1.pred <- cbind(X2, BGC) %>% select(ID1, BGC)
 X1.pred <- BGC
 X1.pred$BGC <-  fct_explicit_na(X1.pred$BGC , na_level = "(None)")
-X1.pred$ID1 <- as.character(X1.pred$ID1)
-
 ```
 
 # Attribute hex grid with subzone/variant call
@@ -164,36 +164,27 @@ require(lwgeom)
 
 q <- paste0("SELECT * FROM sf_grd WHERE dist_code = 'DND'")
 hexdat <- st_read(con, query = q)
+hexdat <- hexdat["siteno"]
+st_crs(hexdat) <- 3005
 
 # hexpoly <- st_read(dsn = paste0("./inputs/", region, "_bgc_hex400.gpkg"))#, layer = "USA_bgc_hex_800m")
 # hexpoly$hex_id <- as.character(hexpoly$hex_id)
-hexpoly <- as.data.table(hexpoly) %>% st_as_sf()
-hexZone <- X1.pred[hexpoly, on = c(ID1 = "hex_id")] 
-hexZone <- st_transform(hexZone,3005) %>% st_cast() %>% select(BGC, geom)
-#hexZone <- left_join(hexpoly, X1.pred, by = c("hex_id" = "ID1"))%>% st_transform(3005) %>% st_cast()
-temp <- hexZone %>% select(BGC, geom)
-temp2 <- st_zm(temp, drop=T, what='ZM') 
-##unremark for undissolved layer
-#st_write(temp2, dsn = paste0("./outputs/", region, "_", "SubZoneMap_hex400_undissolved.gpkg"), driver = "GPKG", delete_dsn = TRUE)
+hexpoly <- as.data.table(hexdat) %>% st_as_sf()
+hexZone <- X1.pred[hexpoly, on = c(ID1 = "siteno")]
+hexZone <- st_as_sf(hexZone, crs = 3005) %>% st_cast() %>% select(BGC, geom)
+hexZone <- st_zm(hexZone, drop=T, what='ZM') 
+st_precision(hexZone) <- .5
+hexZone <- as.data.table(hexZone)
+hexComb <- hexZone[,.(geom = st_union(geom)), by = .(BGC)]
+hexComb <- st_as_sf(hexComb) %>% st_cast()
+st_write(hexComb, dsn = paste0("./outputs/", region, "_", "SubZoneMap_hex400_dissolved2.gpkg"), layer = paste0(region, "_", timeperiod, "_", covcount, "_ranger"), driver = "GPKG", delete_layer = TRUE)
 
-## unremark for Dissolved
-##hexZone <- st_read(dsn = "./outputs/WA_bgc_hex8000_ungrouped.gpkg")#, layer = "USA_bgc_hex_800m") ## need to read it back in to ensure all type Polygon is consistent
-temp3 <- hexZone
-temp3$BGC <- droplevels(temp3$BGC)
-temp3 <-  st_as_sf(temp3)#
-st_precision(temp3) <- .5
-temp3$BGC <- forcats::fct_explicit_na(temp3$BGC,na_level = "(None)")
-temp3 <- temp3[,c("BGC","geom")]
-t2 <- aggregate(temp3[,-1], by = list(temp3$BGC), do_union = T, FUN = mean) %>% rename(BGC = Group.1)
-t2 <- st_zm(t2, drop=T, what='ZM') %>% st_transform(3005) %>% st_cast()
-
-t2 <- t2 %>% st_buffer(0)
 #mapView(t2)
 BGC_area <- t2 %>%
   mutate(Area = st_area(.)) %>% mutate (Area = Area/1000000) %>%
   mutate(ID = seq_along(BGC)) %>% dplyr::select(BGC, Area) %>% st_set_geometry(NULL)
 write.csv(BGC_area, paste0("./outputs/", region, "_", timeperiod, "_", covcount, "_BGC_area_predicted.csv"))
-st_write(t2, dsn = paste0("./outputs/", region, "_", "SubZoneMap_hex400_dissolved2.gpkg"), layer = paste0(region, "_", timeperiod, "_", covcount, "_ranger_NoMonth3"), driver = "GPKG", delete_layer = TRUE)
+
 
 ```
 
