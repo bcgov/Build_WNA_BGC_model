@@ -320,18 +320,18 @@ dtest <- xgb.DMatrix(data = as.matrix(new_tst), label = tst_labs)
 # xgbcv <- xgb.cv(params = params, data = dtrain, nrounds = 100, nfold = 5, showsd = T, stratified = T, 
 #                 print_every_n = 10, early_stopping_rounds = 20, maximize = F)
 
-params <- list(booster = "gbtree", objective = "multi:softmax", eta=0.1, gamma=3, max_depth=8,
-               min_child_weight=1, subsample=0.75, colsample_bytree=1,num_class = 362)
+params <- list(booster = "gbtree", objective = "multi:softmax", eta=0.1, gamma=4, max_depth=8,
+               min_child_weight=1, subsample=0.9, colsample_bytree=1,num_class = 362)
 
 xgb.fit=xgb.train(
   params=params,
   data=dtrain,
-  nrounds=100,
+  nrounds=2000,
   early_stopping_rounds=10,
   watchlist=list(train=dtrain,test=dtest),
   verbose=1
 )
-xgb.save(xgb.fit,"xgbMod21vars")
+xgb.save(xgb.fit,"xgbMod90vars")
 
 var.names <- xgb.fit$feature_names
 DNDPred <- X2[,..var.names]
@@ -345,7 +345,7 @@ X1.pred[,ID1 := as.numeric(ID1)]
 ```
 
 ```{r create map xgboost}
-mapName <- "21Var_xgboost"
+mapName <- "90Var_xgboost"
 hexpoly <- as.data.table(hexdat) %>% st_as_sf()
 hexZone <- X1.pred[hexpoly, on = c(ID1 = "siteno")]
 hexZone <- st_as_sf(hexZone, crs = 3005) %>% st_cast() %>% select(BGC, geom)
@@ -355,4 +355,49 @@ hexZone <- as.data.table(hexZone)
 hexComb <- hexZone[,.(geom = st_union(geom)), by = .(BGC)]
 hexComb <- st_as_sf(hexComb) %>% st_cast()
 st_write(hexComb, dsn = paste0("./outputs/", region, "_", "ModelTesting.gpkg"), layer = paste0(region, "_", timeperiod, "_", mapName), driver = "GPKG", delete_layer = TRUE)
+```
+
+```{r xgboost summary}
+xgb17 <- st_read(dsn = "./outputs/DND_ModelTesting.gpkg", layer = "DND_1991-2019_17Var_xgboost")
+xgb21 <- st_read(dsn = "./outputs/DND_ModelTesting.gpkg", layer = "DND_1991-2019_21Var_xgboost")
+xgb90 <- st_read(dsn = "./outputs/DND_ModelTesting.gpkg", layer = "DND_1991-2019_90Var_xgboost")
+
+rf17 <- st_read(dsn = "outputs/DND_SubZoneMap_hex400_dissolved2.gpkg", layer = "DND_1991_2019_17_vars_ranger")
+rf21 <- st_read(dsn = "./outputs/DND_ModelTesting.gpkg", layer = "DND_1991-2019_BioClim_Same1")
+rf90 <- st_read(dsn = "outputs/DND_SubZoneMap_hex400_dissolved2.gpkg", layer = "DND_1991-2019_90_ranger_NoMonth3")
+
+mods <- list(xgb17,xgb21,xgb90,rf17,rf21,rf90)
+mlAlg <- c("xgb","xgb","xgb","ranger","ranger","ranger")
+varSet <- c(17,21,90,17,21,90)
+xgbSum <- foreach(dat = mods, alg = mlAlg, var = varSet, .combine = rbind) %do% {
+  data.table(Algorithm = alg, VarSet = var, BGC = dat$BGC, Area = st_area(dat))
+}
+
+xgbSum[,Area := set_units(Area, "km^2")]
+xgbSum[,Zone := gsub("[[:lower:]]|[[:digit:]]","",BGC)]
+xgbSum[,Zone := as.factor(Zone)]
+xgbSum[,Area := drop_units(Area)]
+fwrite(xgbSum,"XGB_Ranger_Comparison.csv")
+xgbSum <- fread("XGB_Ranger_Comparison.csv")
+xgbSum[,Zone2 := as.factor(gsub("_.*","",Zone))]
+
+
+ggplot(xgbSum, aes(x = Algorithm, y = Area, fill = Zone)) +
+  geom_bar(stat = "sum") +
+  facet_wrap(. ~ VarSet)
+
+bgc_NA <- st_read(dsn = "~/WNA_BGC_v12_12Oct2020.gpkg")
+bgc_NA <- st_buffer(bgc_NA,0)
+xgb17 <- st_cast(xgb17) %>% st_buffer(0)
+temp <- st_intersection(bgc_NA,xgb17)
+t2 <- temp["BGC"]
+t3 <- data.table(CurrBGC = t2$BGC, CurrArea = st_area(t2))
+t3 <- t3[,.(CurrArea = sum(CurrArea)), by = .(CurrBGC)]
+t3[,CurrArea := set_units(CurrArea, "km^2")]
+t3[,CurrArea := drop_units(CurrArea)]
+setnames(t3,c("BGC","Area"))
+t3[,`:=`(Algorithm = "Current",VarSet = NA, Zone = gsub("[[:lower:]]|[[:digit:]]","",BGC), Zone2 = gsub("[[:lower:]]|[[:digit:]]","",BGC)) ]
+xgbSum <- rbind(xgbSum, t3, fill = T)
+
+
 ```
