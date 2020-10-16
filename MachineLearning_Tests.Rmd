@@ -1,0 +1,358 @@
+---
+title: "Random Forest Model of Biogeoclimatic Units for Western North America"
+author: "William H MacKenzie"
+date: "22/03/2020"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+require (smotefamily)
+#require (UBL) ## UBL conflicts with another package if loaded after a package in the list below
+require(tcltk)
+require(data.table)
+library(randtoolbox)
+library(clhs)
+library(foreign)
+library(ggplot2)
+library(raster)
+library(rgdal)
+library(RStoolbox)
+library(maptools)
+library(sp)
+library(spatstat)
+require(doParallel)
+require(scales)
+require(data.table)
+require(plyr)
+require (DMwR)
+require (dplyr)
+require(caret)
+require (gstat)
+require (tidyr)
+require(ranger)
+require(rticles)
+require(expss)
+require(purrr)
+require(tictoc)
+require(smotefamily)
+#require (gstat)
+#install.packages("smotefamily", dependencies = TRUE)
+#data.dir = "./inputs/"
+#dir.create("cLHS")
+
+addVars <- function(dat){ ##this function modifies everything inplace, so no need for return value
+  dat[,`:=`(PPT_MJ = PPT05+PPT06,
+            PPT_JAS = PPT07+PPT08+PPT09,
+            PPT.dormant = PPT_at+PPT_wt)]
+  dat[,`:=`(CMD.def = 500-PPT.dormant)]
+  dat[CMD.def < 0, CMD.def := 0]
+  dat[,`:=`(CMDMax = CMD07,
+            CMD.total = CMD.def +CMD)]
+  dat[,`:=`(CMD.grow = CMD05+CMD06+CMD07+CMD08+CMD09,
+            DD5.grow = DD5_05+DD5_06+DD5_07+DD5_08+DD5_09,
+            DDgood = DD5 - DD18,
+            DDnew = (DD5_05+DD5_06+DD5_07+DD5_08)-(DD18_05+DD18_06+DD18_07+DD18_08),
+            TmaxJuly = Tmax07)]
+}
+```
+
+Points from a 8km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
+
+```{r read in Grid Climate Data}
+X <- fread("./inputs/WNA_8000m_HexPts_BGC_Normal_1961_1990MSY.csv")#read in historic period
+addVars(X)
+# # ##remove plot id information
+X1 <- X %>% dplyr:: select(-ID1, -Latitude, -Longitude, -Elevation)
+modelvars <- colnames(X1)[-1]
+```
+
+Create different model variable sets
+v1=all
+v2 = no months
+v3 = Biological Variables
+vs4 = near zero variance and >.90 correlation removed
+vs5 = 16var
+vs6 = 35var
+vs7 = new Will's variables
+
+```{r create variable sets}
+vs1 <- modelvars
+month <- c("01", "02", "03", "04", "05", "06","07", "08", "09", "10", "11", "12")
+vs2 <- modelvars[-grep(paste(month, collapse = "|"),modelvars)]
+vs3 <- c("MAT","MCMT","MWMT","TD","MAP","MSP","AHM","SHM","DD_0","DD5","NFFD","bFFP","eFFP",
+         "PAS","EMT","Eref","CMD","Tave_wt","Tave_sm","PPT_wt","PPT_sm")
+X1_no_nzv_pca <- preProcess(X1[,!"BGC"], method = c( "nzv"))
+X1temp <- data.table::copy(X1)
+X1temp[,X1_no_nzv_pca$method$remove := NULL]
+X1temp <- X1temp %>%  na_if(-9999.0) %>% drop_na()
+X_corr <- cor(X1temp[,!"BGC"])
+X1_corr <- findCorrelation(X_corr, cutoff = .90, names = TRUE, verbose = F)
+X1temp[,(X1_corr) := NULL]
+vs4 <- modelvars[modelvars %in% colnames(X1temp)]
+vs5 <- read.csv("./outputs/Model_16Vars.csv") ### from original model
+vs5 <- vs5$x
+vs6 <- read.csv("./outputs/35Var_WNABGCv11.csv") ### from current and future = uncorrelated
+vs6 <- vs6$rowname
+vs7 <- c("MWMT","MSP","SHM","DD5_sp", "DD5_sm","NFFD","bFFP",
+         "PAS","Eref","CMDMax","Tmin_wt","Tave_sm", "CMD.total")
+vs8 <- c("Tave_at","MWMT", "DD5_at",   "DD5_sm",   "DD5_sp", "DD5_wt",
+            "Eref_sm",   "Eref_sp",
+         "Tmin_wt", "MCMT","Tmin_sp",
+         "PPT_JAS",  "PPT_MJ",  "PPT_sm","MSP","PPT_sp",
+         "CMD_sp","CMD_at", "CMD.def", "CMDMax","CMD","CMD.total","SHM","AHM",
+          "Tmax_sp", "Tmax_sm", 
+          "bFFP",  "eFFP",  "NFFD", 
+          "PAS_wt",  "PAS_at",  "PAS_sp", "PPT_wt","PPT.dormant","PAS_sm") 
+vs9 <- c("MWMT", "DD5_at",   "DD5_sm",   "DD5_sp",#, "DD5_wt","Tave_at",
+            "Eref_sm",   "Eref_sp",
+        #"tmin07", # "Tmin_wt", "MCMT","Tmin_sp",
+         "PPT_sm","MSP","PPT_sp",# "PPT_JAS",  "PPT_MJ",  
+         "CMD_sp", "CMDMax","CMD.total","SHM","AHM",#,"CMD_at", "CMD.def""CMD",
+          "Tmax_sp", "Tmax_sm",# "tmax07", 
+          "NFFD") #"bFFP",  "eFFP",  
+          #"PAS_sp") #,"PAS_sm","PPT.dormant"PAS_wt",  "PAS_at", "PPT_wt" 
+# control <- rfeControl(functions = rfFuncs, method = "cv", number = 10)
+# X1temp <- X1 %>%  na_if(-9999.0) %>% drop_na()
+# X1temp[,BGC := as.factor(BGC)]
+# res <- rfe(X1temp[,!"BGC"], X1temp[,BGC], sizes = seq(5,50,by = 5), rfeControl = control)
+```
+
+```{r load and prep training data}
+X0 <- fread("./inputs/WNA_2k_HexPts_BGC_Normal_1961_1990MSY.csv")
+X0[X0 == -9999] <- NA
+X0 <- X0[complete.cases(X0),]
+addVars(X0)
+X0 <- X0[,c("BGC",vs2), with = F]
+X0[,Num := .N, by = .(BGC)]
+X0_OK <- as.data.table(X0[Num > 100 & Num < 500,])
+X0[,LogNum := log(Num,base = 10)]
+X0[Num <= 100, New := scales::rescale(LogNum, to = c(50,100))]
+X0[Num >= 500, New := scales::rescale(LogNum, to = c(500,1000))]
+X0[,New := as.integer(New)]
+
+X0temp <- as.data.table(X0[Num >= 500,])
+cl <- makeCluster(detectCores()-2)
+registerDoParallel(cl)
+
+X0_big <- foreach(unit = unique(X0temp$BGC), .combine = rbind,
+                  .packages = c("clhs","data.table")) %dopar% {
+  cat("Processing",unit,"\n")
+  temp <- X0temp[BGC == unit,]
+  num <- temp$New[1]
+  ##nz <- nearZeroVar(temp, names=T) ##do we need this?
+  lhs <- clhs(temp[,!c("BGC","Num","LogNum","New")],size = num, iter = 1000, use.cpp = T, simple = F)
+  res <- lhs$sampled_data
+  res$BGC <- unit
+  res
+}
+
+X0temp <- as.data.table(X0[Num <= 100,])
+X0_small <- foreach(unit = unique(X0temp$BGC), .combine = rbind, .packages = c("clhs","data.table")) %do% {
+  cat("Processing",unit,"\n")
+  temp <- X0temp[BGC == unit,] %>% mutate_if(is.integer,as.numeric)
+  temp$BGC <- as.numeric(as.factor(temp$BGC))
+  num <- (temp$New[1])/temp$Num[1]
+  temp <- as.data.table(temp)
+  tempSMOTE <- smotefamily::SMOTE(temp[,!c("BGC","Num","LogNum","New")],
+                             temp$BGC, K = 2, dup_size = ceiling(num))
+  newCases <- temp$New[1] - temp$Num[1]
+  synData <- tempSMOTE$syn_data
+  synData <- synData[sample(1:nrow(synData), size = newCases, replace = F),]
+  synData$class <- NULL
+  synData$BGC <- unit
+  synData
+}
+
+X0_OK[,Num := NULL]
+XAll <- rbind(X0_small,X0_OK,X0_big)
+XAll <- as.data.table(XAll)
+XAll[,BGC := as.factor(BGC)]
+```
+
+Build Model
+
+```{r build final ranger model with larger training point size, cache = TRUE, echo=FALSE}
+#X0[,BGC := as.factor(BGC)]
+rm(BGCmodel)
+BGCmodel <- ranger(BGC ~ ., data = XAll, 
+                           num.trees = 101,
+                            splitrule =  "extratrees", #""gini",
+                           importance = "impurity", write.forest = TRUE, classification = TRUE)
+
+BGCmodel2 <- randomForest(BGC ~ ., data=XAll,  do.trace = 10,
+                         ntree=101, na.action=na.omit, importance=TRUE, 
+                         proximity=FALSE, keep.forest = T, localImp = T)
+
+```
+
+Setup prediction data
+
+```{r DND prediction}
+region <- "DND"
+timeperiod <- "1991-2019"
+###combine and average decadal data for the current normal period
+Y1 <- fread(paste0("./inputs/", region, "_400m_HexPts_Decade_1991_2000MSY.csv"))
+Y2 <- fread(paste0("./inputs/", region, "_400m_HexPts_Decade_2001_2010MSY.csv"))
+Y3 <- fread(paste0("./inputs/", region, "_400m_HexPts_Decade_2011_2019MSY.csv"))
+Y <-  rbind (Y1,Y2,Y3)
+addVars(Y)
+
+X2 <- Y[,lapply(.SD,mean), by = .(ID1),]
+```
+
+Predict
+
+```{r predict}
+grid.pred <- predict(BGCmodel, data = X2)
+temp <- as.data.table(grid.pred$predictions)
+BGC <- cbind(X2$ID1,temp)
+setnames(BGC, c("ID1","BGC"))
+X1.pred <- BGC
+X1.pred$BGC <-  fct_explicit_na(X1.pred$BGC , na_level = "(None)")
+```
+
+Load hex grid
+
+```{r}
+# library(RPostgreSQL)
+# drv <- dbDriver("PostgreSQL")
+# con <- dbConnect(drv, user = "postgres", host = "localhost",
+#                  password = "Kiriliny41", port = 5432, dbname = "cciss_data") 
+# q <- paste0("SELECT * FROM sf_grd WHERE dist_code = 'DND'")
+# hexdat <- st_read(con, query = q)
+# hexdat <- hexdat["siteno"]
+hexdat <- st_read(dsn = paste0("./inputs/", region, "_bgc_hex400.gpkg"))
+colnames(hexdat)[1] <- "siteno"
+hexdat$siteno <- as.numeric(as.character(hexdat$siteno))
+st_crs(hexdat) <- 3005
+dbDisconnect(con)
+```
+
+Create map
+
+```{r create map}
+mapName <- "BioClim_DiffCLHS"
+hexpoly <- as.data.table(hexdat) %>% st_as_sf()
+hexZone <- X1.pred[hexpoly, on = c(ID1 = "siteno")]
+hexZone <- st_as_sf(hexZone, crs = 3005) %>% st_cast() %>% select(BGC, geom)
+hexZone <- st_zm(hexZone, drop=T, what='ZM') 
+st_precision(hexZone) <- .5
+hexZone <- as.data.table(hexZone)
+hexComb <- hexZone[,.(geom = st_union(geom)), by = .(BGC)]
+hexComb <- st_as_sf(hexComb) %>% st_cast()
+st_write(hexComb, dsn = paste0("./outputs/", region, "_", "ModelTesting.gpkg"), layer = paste0(region, "_", timeperiod, "_", mapName), driver = "GPKG", delete_layer = TRUE)
+```
+
+Tune parameters
+```{r tune params}
+trainv3 <- XAll
+trainv9 <- XAll
+trainv2 <- XAll
+mt <- 3:17
+mt_tune <- foreach(m = mt, .combine = rbind) %do% {
+  cat("mtry =",m,"\n")
+  mod1 <- ranger(BGC ~ ., data = trainv3, 
+                 mtry = m,
+                           num.trees = 101,
+                 num.random.splits = 3,
+                            splitrule =  "extratrees", #""gini",
+                           importance = "impurity", write.forest = TRUE, classification = TRUE)
+  mod2 <- ranger(BGC ~ ., data = trainv9, 
+                 mtry = m,
+                           num.trees = 101,
+                 num.random.splits = 3,
+                            splitrule =  "extratrees", #""gini",
+                           importance = "impurity", write.forest = TRUE, classification = TRUE)
+  pred1 <- predict(mod1, data = X2)
+  pred2 <- predict(mod2, data = X2)
+  pAll <- cbind(as.data.table(pred1$predictions),as.data.table(pred2$predictions))
+  setnames(pAll, c("M1","M2"))
+  pAll[,Same := ifelse(M1 == M2, 1,0)]
+  stat <- sum(pAll$Same)/nrow(pAll)
+  data.table(mtry = m, M1 = mod1$prediction.error,M2 = mod2$prediction.error,Sim = stat)
+}
+
+num <- seq(1,15,by = 2)
+num_tune <- foreach(m = num, .combine = rbind, .errorhandling = "remove") %do% {
+  cat("num splits =",m,"\n")
+  mod1 <- ranger(BGC ~ ., data = trainv3, 
+                 mtry = 5,
+                           num.trees = 101,
+                 num.random.splits = m,
+                            splitrule =  "extratrees", #""gini",
+                           importance = "impurity", write.forest = TRUE, classification = TRUE)
+  mod2 <- ranger(BGC ~ ., data = trainv9, 
+                 mtry = 5,
+                           num.trees = 101,
+                 num.random.splits = m,
+                            splitrule =  "extratrees", #""gini",
+                           importance = "impurity", write.forest = TRUE, classification = TRUE)
+  pred1 <- predict(mod1, data = X2)
+  pred2 <- predict(mod2, data = X2)
+  pAll <- cbind(as.data.table(pred1$predictions),as.data.table(pred2$predictions))
+  setnames(pAll, c("M1","M2"))
+  pAll[,Same := ifelse(M1 == M2, 1,0)]
+  stat <- sum(pAll$Same)/nrow(pAll)
+  data.table(Num = m, M1 = mod1$prediction.error,M2 = mod2$prediction.error,Sim = stat)
+}
+```
+
+```{r xgboost}
+library(xgboost)
+library(mlr)
+library(caret)
+
+trset <- createDataPartition(y = trainv2$BGC,p = 0.8,list = F)
+train <- trainv2[trset,]
+test <- trainv2[-trset,]
+
+labels <- as.numeric(train$BGC)-1
+tst_labs <- as.numeric(test$BGC)-1
+new_tr <- train[,!("BGC")]
+new_tst <- test[,!("BGC")]
+
+dtrain <- xgb.DMatrix(data = as.matrix(new_tr), label = labels)
+dtest <- xgb.DMatrix(data = as.matrix(new_tst), label = tst_labs)
+
+# xgbcv <- xgb.cv(params = params, data = dtrain, nrounds = 100, nfold = 5, showsd = T, stratified = T, 
+#                 print_every_n = 10, early_stopping_rounds = 20, maximize = F)
+
+params <- list(booster = "gbtree", objective = "multi:softmax", eta=0.1, gamma=3, max_depth=8,
+               min_child_weight=1, subsample=0.75, colsample_bytree=1,num_class = 362)
+
+xgb.fit=xgb.train(
+  params=params,
+  data=dtrain,
+  nrounds=100,
+  early_stopping_rounds=10,
+  watchlist=list(train=dtrain,test=dtest),
+  verbose=1
+)
+xgb.save(xgb.fit,"xgbMod21vars")
+
+var.names <- xgb.fit$feature_names
+DNDPred <- X2[,..var.names]
+DNDPred <- xgb.DMatrix(as.matrix(DNDPred))
+xgb.pred <- predict(xgb.fit,DNDPred)
+temp <- levels(train$BGC)[xgb.pred + 1]
+BGC <- cbind(X2$ID1,temp) %>% as.data.table()
+setnames(BGC, c("ID1","BGC"))
+X1.pred <- BGC
+X1.pred[,ID1 := as.numeric(ID1)]
+```
+
+```{r create map xgboost}
+mapName <- "21Var_xgboost"
+hexpoly <- as.data.table(hexdat) %>% st_as_sf()
+hexZone <- X1.pred[hexpoly, on = c(ID1 = "siteno")]
+hexZone <- st_as_sf(hexZone, crs = 3005) %>% st_cast() %>% select(BGC, geom)
+hexZone <- st_zm(hexZone, drop=T, what='ZM') 
+st_precision(hexZone) <- .5
+hexZone <- as.data.table(hexZone)
+hexComb <- hexZone[,.(geom = st_union(geom)), by = .(BGC)]
+hexComb <- st_as_sf(hexComb) %>% st_cast()
+st_write(hexComb, dsn = paste0("./outputs/", region, "_", "ModelTesting.gpkg"), layer = paste0(region, "_", timeperiod, "_", mapName), driver = "GPKG", delete_layer = TRUE)
+```
