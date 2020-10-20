@@ -39,6 +39,7 @@ require(purrr)
 require(forcats)
 require(sf)
 require(StatMatch)
+require(randomForest)
 #require (gstat)
 #install.packages("smotefamily", dependencies = TRUE)
 #data.dir = "./inputs/"
@@ -65,7 +66,7 @@ addVars <- function(dat){
 Points from a 8km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
 
 ```{r read in Hex Grid Climate Data}
-region <- "RCB"
+region <- "DND"
 # bring in grid data with climate attributes
 X <- fread(paste0("./inputs/", region,"_400m_HexPts_Normal_1961_1990MSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in historic period
 X1 <- addVars(X)
@@ -77,8 +78,9 @@ Y3 <- fread(paste0("./inputs/", region, "_400m_HexPts_Decade_2011_2019MSY.csv"),
 Y <-  rbind (Y1,Y2,Y3)
 Y <- addVars(Y)
 # 
-load("./BGC_models/WNA_Subzone_17Var_extratree.Rdata")
+load("./BGC_models/WNA_Subzone_35Var_rf.Rdata")
 model_vars <- as.data.frame(BGCmodel$variable.importance) %>% tibble::rownames_to_column()
+model_vars <- as.data.frame(BGCmodel$importance) %>% tibble::rownames_to_column()
 covcount <- count(model_vars)
 X2 <- X1 %>% dplyr::select(ID1, model_vars [,1])# %>% drop_na(BGC)
 timeperiod = "1961-1990"
@@ -101,9 +103,11 @@ timeperiod = "1991-2019"
 ####Predict BGC membership of hex grid
 
 ``` {r predict BGC of hex points }
-###Predict
+###Predict for ranger model
 grid.pred <- predict(BGCmodel, data = X2[,-c(1)])
 BGC <- as.data.frame(grid.pred$predictions) %>% rename("BGC" = "grid.pred$predictions")
+grid.pred <- predict(BGCmodel, data = X2[,-c(1)])
+BGC <- as.data.frame(grid.pred)#%>% tibble::rownames_to_column()# %>% rename("BGC" = "grid.pred$predicted")
 X1.pred <- cbind(X2, BGC) %>% select(ID1, BGC)
 X1.pred$BGC <-  fct_explicit_na(X1.pred$BGC , na_level = "(None)")
 X1.pred$ID1 <- as.character(X1.pred$ID1)
