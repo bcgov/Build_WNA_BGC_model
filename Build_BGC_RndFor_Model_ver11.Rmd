@@ -99,7 +99,7 @@ vs6 = 35var
 vs7 = new Will's variables
 vs8 = 35 var
 vs9 = reduced 35 for biologial variable reduction
-vs10 = testing effects and final set
+vs10+ = testing effects and final set
 
 ```{r create variable sets}
 vs1 <- modelvars
@@ -173,15 +173,18 @@ BGC_names <- fread("D:/CommonTables/BGC_maps/WNAv12_BGClist.csv")
 bgcs <- BGC_names
 X0 <- inner_join(X0, BGC_names) %>% select(-BGC) 
 X0$BGC <- X0$Zone
-#X0$BGC <-   dplyr::recode(X0$BGC, MS = "SBS_MS", SBS = "SBS_MS", SBPS = "SBS_MS", BWBS = "SBS_MS",SWB = "SBS_MS", ESSF= "SBS_MS",.default = "Not_Boreal")
+X0$BGC <-   dplyr::recode(X0$BGC, MS = "SBS_MS", SBS = "SBS_MS", SBPS = "SBS_MS", BWBS = "SBS_MS", SWB = "SBS_MS", ESSF= "SBS_MS",.default = "Not_Boreal")
+
 #X0$BGC <-   dplyr::recode(X0$BGC, BAFA = "Alpine",IMA = "Alpine", CMA = "Alpine", .default = "Not_Alpine")
-X0$BGC <-   dplyr::recode(X0$BGC, CWH = "Coast", CDF = "Coast", CRF = "Coast", .default = "Interior")                      
+#X0$BGC <-   dplyr::recode(X0$BGC, CWH = "Coast", CDF = "Coast", CRF = "Coast", .default = "Interior")                      
 #X0$BGC <-   dplyr::recode(X0$BGC, IDF = "IDF_PP", BG = "IDF_PP", PP = "IDF_PP")
 #bgcs <- c("CWHws2", "ICHmc2")
 #X0 <- X0 %>% filter (!BGC %in% bgcs)
+
 X0[X0 == -9999] <- NA
 X0 <- X0[complete.cases(X0),]
 X0 <- addVars(X0)
+
 X0 <- X0[,c("BGC",vs14), with = F] ## select the variable set here
 X0 <- X0 %>% mutate_if(is_integer,as.numeric)
 #X0 <- as.data.frame(X0)
@@ -211,6 +214,7 @@ removeOutlier <- function(dat, alpha, numIDvars){
 
 XX <- removeOutlier(X0, alpha = .011, numIDvars = 1) ###set alpha for removal of outlieres (2.5% = 3SD)
 X0 <- as.data.table(XX)
+
 X0[,Num := .N, by = .(BGC)]
 X0_OK <- as.data.table(X0[Num > 100 & Num < 500,])
 X0[,LogNum := log(Num,base = 10)]
@@ -254,7 +258,7 @@ X0_small <- foreach(unit = unique(X0temp$BGC), .combine = rbind, .packages = c("
 
 X0_OK[,Num := NULL]
 XAll <- rbind(X0_small,X0_OK,X0_big)
-#XAll <- X0  ###unalanced data set
+XAll <- X0  ###unalanced data set
 XAll <- as.data.table(XAll)
 
 XAll[,BGC := as.factor(BGC)]
@@ -271,10 +275,14 @@ The new rebalanced training set is 310 668 points. This training set is submitte
 #                             splitrule =  "extratrees", #""gini",
 #                            importance = "impurity", write.forest = TRUE, classification = TRUE)
 # #=#strata=BGC, sampsize= c(500),do.trace = 10,
-
-
-##Simple rF model
-
+# BGCmodel <- ranger(BGC ~ ., data = XAll, 
+#                            num.trees = 101,  seed = 12345, 
+#                             splitrule =  "extratrees", #""gini",
+#                            importance = "impurity", write.forest = TRUE, classification = TRUE)
+# 
+# test <- treeInfo(BGCmodel,1)
+# #=#strata=BGC, sampsize= c(500),do.trace = 10, 
+# ##Simple rF model
  # BGCmodel <- randomForest(BGC ~ ., data=XAll,  do.trace = 10, 
  #                         ntree=101, na.action=na.omit, importance=TRUE, proximity=FALSE)
  # 
@@ -310,8 +318,13 @@ covcount <- count(varimp)
 BGCmodel <- BGCmodel.tidy
 save(BGCmodel.tidy,file= paste0("./BGC_models/WNAv12_Zone_", covcount, "_Var_tidyrfCoast.Rdata"))
 
-DF <- varimp %>% tibble::rownames_to_column() %>% rename(w = 1, v = 2)
- 
+#DF <- varimp %>% tibble::rownames_to_column() %>% rename(w = 1, v = 2)
+
+BGCmodel
+v <-as.data.frame(BGCmodel$variable.importance)
+
+DF <- v %>% tibble::rownames_to_column() %>% rename(w = rowname, v = 'BGCmodel$variable.importance')
+
  ggplot(DF, aes(x=reorder(w,v), y=v,fill=v))+ 
   geom_bar(stat="identity", position="dodge")+ coord_flip() +
    ylab("Variable Importance")+
@@ -319,7 +332,21 @@ DF <- varimp %>% tibble::rownames_to_column() %>% rename(w = 1, v = 2)
    ggtitle("Information Value Summary")+
    guides(fill=F)+
    scale_fill_gradient(low="red", high="blue")
+#
+ 
+ 
+# BGCmodel2 <- randomForest(BGC ~ ., data=XAll,  do.trace = 10,
+#                          ntree=101, na.action=na.omit, importance=TRUE, 
+#                          proximity=FALSE, keep.forest = T, localImp = T)
 # 
+# library(randomForestExplainer)
+# min_depth_frame <- min_depth_distribution(BGCmodel2)
+# explain_forest(BGCmodel2)
+# 
+# library(reprtree)
+# rtree <- ReprTree(BGCmodel2,)
+# reprtree:::plot.getTree(BGCmodel2)
+
 # model_vars <- as.data.frame(BGCmodel$variable.importance) %>% tibble::rownames_to_column()
 # model_vars <- as.data.frame(BGCmodel$importance) %>% tibble::rownames_to_column()
 # covcount <- count(model_vars)
@@ -410,7 +437,7 @@ write.csv (BGCmodel$confusion.matrix, file= paste("./outputs/",covcount,"_Confus
 ```
 
 
-
+##Not yet functioning
 
 ``` {r c add region code to BGCs for testing }
 X_test <- fread("./inputs/WNAv12_2000m_Pts_Normal_1961_1990MSY.csv")
