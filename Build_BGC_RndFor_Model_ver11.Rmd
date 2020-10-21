@@ -39,6 +39,7 @@ require(purrr)
 require(tictoc)
 require(smotefamily)
 require(randomForest)
+library(tidyverse)
 require(tidymodels)
 require(vip)
 require(stringr)
@@ -166,8 +167,42 @@ vs14 <- c("TD", "NFFD", "DD5", "FFP", "Tmin_wt") ### Coast vs Interior
 # res <- rfe(X1temp[,!"BGC"], X1temp[,BGC], sizes = seq(5,50,by = 5), rfeControl = control)
 ```
 
+```{r find and create interactions}
+X0 <- fread("./inputs/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+X0[X0 == -9999] <- NA
+X0 <- X0[complete.cases(X0),]
+X0 <- addVars(X0)
+
+X0 <- X0[,c("BGC",vs8), with = F] 
+X0[,target := grepl("ICH",BGC)][,target := ifelse(target,1,0)]
+temp <- X0[,.(target,CMD,MSP)][,melt(.SD,id.vars = "target")][,variable := as.factor(variable)]
+ggplot(temp, aes(x = value, y = target, col = variable)) +
+  geom_point()
+
+##logistic regressions to test specific interactions
+mod1 <- glm(target ~ CMD + MSP, data = X0, family = "binomial")
+anova(mod1, test = "Chisq")
+mod2 <- glm(target ~ CMD + MSP + CMD:MSP, data = X0, family = "binomial")
+anova(mod2, test = "Chisq")
+
+anova(mod1,mod2,test = "LRT")##test decrease in residual sums of squares
+
+mod1 <- glm(target ~ CMD + DD5_at, data = X0, family = "binomial")
+anova(mod1, test = "Chisq")
+mod2 <- glm(target ~ CMD + DD5_at + CMD:DD5_at, data = X0, family = "binomial")
+anova(mod2, test = "Chisq")
+
+anova(mod1,mod2,test = "LRT")
+
+###now trying some stuff from the Kuhn book
+library(glinternet)
+xmat <- as.matrix(X0[,!c("BGC","target")])
+test <- glinternet(X = xmat, Y = X0$target, numLevels = rep(1,35), family = "binomial")
+
+```
+
 ```{r load and prep training data}
-X0 <- fread("./inputs/WNAv12_2000m_Pts_Normal_1961_1990MSY.csv")
+X0 <- fread("./inputs/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
 X0 <- X0 %>% dplyr::rename(BGC = ID2) #%>% dplyr::select(-V1, -ID1,-Latitude, -Longitude,-Elevation)
 BGC_names <- fread("D:/CommonTables/BGC_maps/WNAv12_BGClist.csv")
 bgcs <- BGC_names
