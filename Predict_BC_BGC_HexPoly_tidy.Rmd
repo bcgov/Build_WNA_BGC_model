@@ -79,7 +79,7 @@ addVars <- function(dat){
 Points from a 8km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
 
 ```{r read in Hex Grid Climate Data}
-region <- "RCB"
+region <- "DND"
 # bring in grid data with climate attributes
 X <- fread(paste0("./inputs/", region,"_400m_HexPts_Normal_1961_1990MSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in historic period
 X1 <- addVars(X)
@@ -93,16 +93,21 @@ Y <- addVars(Y)
 
 # Z <- fread(paste0("./inputs/", region,"_400m_HexPts_6 GCMsMSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in historic period
 # models <- as.data.frame(unique(Z$Year))
-# model <-  c("15GCM-Ensemble_rcp45_2055.gcm")
+# model <-  c("15GCM-Ensemble_rcp45_2025.gcm")
 # Z1 <- addVars(Z) %>% filter(Year %in% model) %>% select(-Year)
 
 
+## load tidy model
+# load("./BGC_models/WNAv12_Subzone_35_Var_ranger2.Rdata")
+# BGCmodel.var <- pull_workflow_fit(BGCmodel)$fit
+# model_vars <- BGCmodel.var$importance
+# model_vars <- as.data.frame(model_vars) %>% tibble::rownames_to_column()
 
-load("./BGC_models/WNAv12_Zone_11_Var_tidyrfAlpine.Rdata")
-BGCmodel.var <- pull_workflow_fit(BGCmodel)$fit
-model_vars <- BGCmodel.var$importance
-model_vars <- as.data.frame(model_vars) %>% tibble::rownames_to_column()
-#model_vars <- as.data.frame(BGCmodel$importance) %>% tibble::rownames_to_column()
+## load ranger model
+load("./BGC_models/WNAv12_Subzone_92_Var_ranger_reduced4.Rdata")
+model_vars <- as.data.frame(BGCmodel2$variable.importance) %>% tibble::rownames_to_column()
+BGCmodel <- BGCmodel2
+
 covcount <- count(model_vars)
 X2 <- X1 %>% dplyr::select(ID1, model_vars [,1])# %>% drop_na(BGC)
 timeperiod = "1961-1990"
@@ -111,11 +116,11 @@ Y1 <- data.table(Y)
 Y2 <- Y1[,lapply(.SD,mean),
                      by = .(ID1),]
 #--------unremark for 1991-2019 period
-# X2 <- Y2 ## use this line if wanting to run the modern climate change period
-# timeperiod = "1991-2019"
-
+X2 <- Y2 ## use this line if wanting to run the modern climate change period
+timeperiod = "1991-2019"
+# 
 # X2 <- Z1 %>% dplyr::select(ID1, model_vars [,1])# %>% drop_na(BGC)
-# timeperiod = "2055"
+# timeperiod = "2025"
 #-----------------------
 
 #X1$BGC <- as.factor(X1$BGC)
@@ -128,11 +133,14 @@ Y2 <- Y1[,lapply(.SD,mean),
 ####Predict BGC membership of hex grid
 
 ``` {r predict BGC of hex points }
+###Predict for tidy model
+# grid.pred <- predict(BGCmodel, new_data = X2[,-c(1)])
+# BGC <- as.data.frame(grid.pred$.pred_class) %>% rename("BGC" = "grid.pred$.pred_class")
+
 ###Predict for ranger model
-grid.pred <- predict(BGCmodel, new_data = X2[,-c(1)])
-BGC <- as.data.frame(grid.pred$.pred_class) %>% rename("BGC" = "grid.pred$.pred_class")
-# grid.pred <- predict(BGCmodel, data = X2[,-c(1)])
-# BGC <- as.data.frame(grid.pred)#%>% tibble::rownames_to_column()# %>% rename("BGC" = "grid.pred$predicted")
+
+ grid.pred <- predict(BGCmodel, data = X2[,-c(1)])
+ BGC <- as.data.frame(grid.pred$predictions)%>% tibble::rownames_to_column() %>% rename("BGC" = "grid.pred$predictions")
 X1.pred <- cbind(X2, BGC) %>% select(ID1, BGC)
 X1.pred$BGC <-  fct_explicit_na(X1.pred$BGC , na_level = "(None)")
 X1.pred$ID1 <- as.character(X1.pred$ID1)
@@ -168,8 +176,9 @@ t2 <- t2 %>% st_buffer(0)
 BGC_area <- t2 %>%
   mutate(Area = st_area(.)) %>% mutate (Area = Area/1000000) %>%
   mutate(ID = seq_along(BGC)) %>% dplyr::select(BGC, Area) %>% st_set_geometry(NULL)
-write.csv(BGC_area, paste0("./outputs/", region, "_", timeperiod, "_", covcount, "_BGC_area_predicted.csv"))
-st_write(t2, dsn = paste0("./outputs/", region, "_", "ZoneMap_hex400_dissolved7.gpkg"), layer = paste0(region, "_", timeperiod, "_", covcount, "_vars_tidyZonelump2"), driver = "GPKG", delete_layer = TRUE)
+write.csv(BGC_area, paste0("./outputs/", region, "_", timeperiod, "_", covcount, "_BGC_area_predicted_reduced_4e.csv"))
+st_write(t2, dsn = paste0("./outputs/", covcount, "_", "Subzone_Map_hex400_dissolved.gpkg"), layer = paste0(region, "_", timeperiod, "_", region , "_vars_ranger_reduced_4e"), driver = "GPKG", delete_layer = TRUE)
+                                                                                                       
 
 ```
 
