@@ -176,8 +176,8 @@ X0 <- addVars(X0)
 X0 <- X0[,c("BGC",vs8), with = F] 
 X0[,target := grepl("ICH",BGC)][,target := ifelse(target,1,0)]
 temp <- X0[,.(target,CMD,MSP)][,melt(.SD,id.vars = "target")][,variable := as.factor(variable)]
-ggplot(temp, aes(x = value, y = target, col = variable)) +
-  geom_point()
+# ggplot(temp, aes(x = value, y = target, col = variable)) +
+#   geom_point()
 
 ##logistic regressions to test specific interactions
 mod1 <- glm(target ~ CMD + MSP, data = X0, family = "binomial")
@@ -199,6 +199,9 @@ library(glinternet)
 xmat <- as.matrix(X0[,!c("BGC","target")])
 test <- glinternet(X = xmat, Y = X0$target, numLevels = rep(1,35), family = "binomial")
 
+library(iRF)
+t2 <- iRF(x = xmat, y = as.factor(X0$target),ntree = 101, n.core = 1, bootstrap.forest = F, n.iter = 3, 
+          interactions.return = 1:3)
 ```
 
 ```{r load and prep training data}
