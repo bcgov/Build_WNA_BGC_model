@@ -167,6 +167,7 @@ vs15 <- c("MSP", "NFFD", "DD5_sp", "CMD.total") ### Coast vs Interior
       #     #
 vs16 <- c("MWMT","MSP","SHM","DD5_sp", "DD5_sm","NFFD","bFFP",
          "PAS","Eref","CMDMax","Tmin_wt","Tave_sm", "CMD.total","CMD","DD5","MCMT")
+vs17 <- c("CMD","DD5","MCMT","Tmin_wt","MSP")
 # control <- rfeControl(functions = rfFuncs, method = "cv", number = 10)
 # X1temp <- X1 %>%  na_if(-9999.0) %>% drop_na()
 # X1temp[,BGC := as.factor(BGC)]
@@ -177,6 +178,7 @@ vs16 <- c("MWMT","MSP","SHM","DD5_sp", "DD5_sm","NFFD","bFFP",
 ```{r load and prep training data}
 #X0 <- fread("./inputs/WNAv12_2000m_Pts_Normal_1961_1990MSY.csv")
 X0 <- fread("./inputs/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+X0 <- fread("./inputs/WNAv12_2000m_Pts_Normal_1961_1990MSY.csv")
 #X0 <- X0 %>% dplyr::rename(BGC = ID2) #%>% dplyr::select(-V1, -ID1,-Latitude, -Longitude,-Elevation)
 #BGC_names <- fread("D:/CommonTables/BGC_maps/WNAv12_BGClist.csv")
 ###removing coast transition mapping/climate surface problems
@@ -221,8 +223,16 @@ X0[X0 == -9999] <- NA
 X0 <- X0[complete.cases(X0),]
 X0 <- addVars(X0)
 
+X0[,V1 := NULL]
+setnames(X0, old = "ID2", new = "BGC")
 IDVars <- X0[,.(ID1,Latitude,Longitude)]
-X0 <- X0[,c("ID1","BGC",vs16), with = F] ## select the variable set here
+X0 <- X0[,c("ID1","BGC",vs9), with = F] ## select the variable set here
+
+no_nzv <- preProcess(X0[,!c("BGC","ID1")], method = c( "nzv"))
+no_nzv$method$remove
+no_corr <- findCorrelation(cor(X0[,!c("BGC","ID1")]), cutoff = .9, names = TRUE, verbose = F)
+toRemove <- unique(c(no_nzv$method$remove,no_corr))
+X0[,(toRemove) := NULL]
 
 # X0 <- addInteractVars(X0)
 # X0 <- X0 %>% select(-Tmin_wt, -MCMT, -PPT_JAS, -PPT_MJ, -PPT_sm, -PPT_wt, -PPT.dormant, -PPT_sp, -MSP,  -PAS_sm )
@@ -319,38 +329,98 @@ set.seed(234589)
 cores <- parallel::detectCores()
 cores
 
-temp <- X0[,.(BGC,DD5,CMD,MSP,MCMT,Tmin_wt)]
-temp <- temp[,lapply(.SD,function(x){range(x)[2] - range(x)[1]}),by = BGC]
-zeroVar <- temp[CMD == 0,as.character(BGC)]
+#temp <- X0[,!"ID1"]
+#temp <- temp[,!c("DD5_wt","PAS_sm")]
+#temp <- temp[,lapply(.SD,function(x){range(x)[2] - range(x)[1]}),by = BGC]
+# zeroVar <- temp[CMD == 0,as.character(BGC)]
 # X0[,CMD := as.numeric(CMD)]
 # X0[as.character(BGC) %chin% zeroVar, CMD := jitter(CMD, amount = 0.5)]
 
 BGC_Nums <- X0[,.(Num = .N), by = BGC]
 
-BGC_train <- X0[!BGC %in% zeroVar & !BGC %in% BGC_Nums[Num < 10, BGC],.(ID1,BGC,DD5,CMD,MSP,MCMT,Tmin_wt)]
-##distDat <- classDist(BGC_train[,!"BGC"],BGC_train$BGC)
-BGCs <- unique(as.character(BGC_train$BGC))
-
-##simple mahalanobis distance
-BGC_train[,mahDist := mahalanobis(.SD, center = colMeans(.SD), cov = cov(.SD)), 
-          .SDcols = c("DD5","CMD","MSP","MCMT"), by = BGC]
-BGC_train <- BGC_train[mahDist < 5,]
-out <- IDVars[BGC_train, on = "ID1"]
-
-# mahDist <- foreach(b = BGCs, combine = rbind) %do% {
-#   cat(b," ")
-#   temp <- BGC_train[BGC == b,.(BGC,DD5,CMD,MSP,MCMT)]
-#   centroid <- colMeans(temp[,!"BGC"])
-#   mdist <- mahalanobis(temp[,!"BGC"],center = centroid, cov = cov(temp[,!"BGC"]))
+BGC_train <- X0[!BGC %in% BGC_Nums[Num < 25, BGC],]
+# BGC_train[BGC_train == 0] <- 0.1
+# temp <- BGC_train[,lapply(.SD,function(x){range(x)[2] - range(x)[1]}),by = BGC, .SDcols = -"ID1"]
+# #BGC_train <- BGC_train[,lapply(.SD,as.numeric), .SDcols = -c("ID1","BGC"), by = .(ID1,BGC)]
+# for(b in colnames(BGC_train)[-(1:2)]){
+#   zeroVar <- temp[get(b) == 0,as.character(BGC)]
+#   BGC_train[BGC %in% zeroVar, (b) := jitter(get(b), amount = 3)]
 # }
 
-##this doesn't really do what we want
-BGC_clean <- recipe(BGC ~ ., data = BGC_train) %>%
-  step_classdist(DD5,CMD,MSP,Tmin_wt, class = "BGC", 
+##proximity of centroids
+library(StatMatch)
+library(corpcor)
+BGC_Centroids <- BGC_train[,lapply(.SD,mean,na.rm = T),by = BGC, .SDcols = -c("ID1")]
+BGC_Centroids[BGC_Centroids == 0] <- 0.1
+cent_dist <- mahalanobis.dist(BGC_Centroids[,!"BGC"])
+rownames(cent_dist) <- BGC_Centroids$BGC
+colnames(cent_dist) <- BGC_Centroids$BGC
+hist(cent_dist)
+#cent_dist[lower.tri(cent_dist, diag = T)] <- NA
+cent_dt <- as.data.table(cent_dist)
+cent_dt[,Unit1 := rownames(cent_dist)]
+cent_dt <- melt(cent_dt, id.vars = "Unit1")
+cent_dt <- cent_dt[!is.na(value),]
+#cent_dt <- cent_dt[value < 0.5,]
+setnames(cent_dt, c("Unit1","Unit2","MahDist"))
+fwrite(cent_dt, "CentroidDistAllUnits_12var.csv")
+
+
+##simple mahalanobis distance
+BGC_train[,mahDist := mahalanobis(.SD, center = colMeans(.SD), cov = pseudoinverse(cov(.SD)), inverted = T), 
+          .SDcols = -c("ID1"), by = BGC]
+Mah_Summ <- BGC_train[,.(Mean = mean(mahDist), Var = sd(mahDist), Quant = quantile(mahDist,0.9)), by = BGC]
+Mah_Summ[BGC_Nums, NumPoints := i.Num, on = "BGC"]
+fwrite(Mah_Summ,"MD_Var12.csv")
+#BGC_train <- BGC_train[mahDist < 5,]
+
+BGCs <- unique(as.character(BGC_train$BGC))
+data.table::setkey(BGC_train,BGC)
+distAll <- BGC_train[,.(ID1,BGC)]
+
+for(b in BGCs){
+  cat(b)
+  curr <- BGC_train[BGC == b,!c("ID1","BGC")]
+  centroid <- colMeans(curr)
+  covInv <- pseudoinverse(cov(curr))
+  distAll[,(b) := mahalanobis(BGC_train[,!c("ID1","BGC")],
+                              center = centroid,cov = covInv,inverted = T)]
+}
+
+mahAll <- melt(distAll, id.vars = c("ID1","BGC"))
+setnames(mahAll, old = c("variable","value"), new = c("Centroid","MD"))
+setkey(mahAll,ID1)
+minDist <- mahAll[order(MD),.SD[1L],by = ID1]
+minDist[,Same := BGC == Centroid]
+fwrite(minDist,"ClosestCentroid35VarReduced.csv")
+BGC_train[minDist, Include := i.Same, on = "ID1"]
+fwrite(BGC_train,"FlaggedTrainingSet.csv")
+#minDist <- mahAll[, .SD[which.min(MD)], by = ID1]
+
+# BGCs <- unique(as.character(BGC_train$BGC))
+# mahDist <- foreach(b = BGCs, combine = rbind) %do% {
+#   cat(b," ")
+#   temp <- BGC_train[BGC == b,!c("ID1","BGC")]
+#   centroid <- colMeans(temp)
+#   matInv <- pseudoinverse(cov(temp))
+#   mdist <- mahalanobis(temp,center = centroid, cov = matInv, inverted = T)
+# }
+
+BGC_train[,mahDist := NULL]
+BGC_clean <- recipe(BGC ~ CMD+DD5+MCMT+Tmin_wt+MSP, data = BGC_train) %>%
+  step_classdist(all_predictors(), class = "BGC", 
                  pool = F, mean_func = mean, prefix = "mahdist_")
 
 mahDist <- prep(BGC_clean,training = BGC_train)
 mahOut <- bake(mahDist, new_data = BGC_train)
+mahAll <- as.data.table(mahOut)
+mahAll <- melt(mahAll[,!c("DD5","MSP","Tmin_wt","CMD","MCMT")], id.vars = c("ID1","BGC"))
+setnames(mahAll, old = c("variable","value"), new = c("Centroid","MD"))
+minDist <- mahAll[, .SD[which.min(MD)], by = ID1]
+rm(mahAll)
+gc()
+minDist[,Centroid := gsub("mahdist_","",Centroid)]
+minDist[,Same := BGC == Centroid]
 
 BGC_recipe <- recipe(BGC ~ .,  data = BGC_train) %>%
     step_center(all_predictors()) %>%
