@@ -177,7 +177,7 @@ vs17 <- c("CMD","DD5","MCMT","Tmin_wt","MSP")
 
 ```{r load and prep training data}
 #X0 <- fread("./inputs/WNAv12_2000m_Pts_Normal_1961_1990MSY.csv")
-X0 <- fread("./inputs/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+#X0 <- fread("./inputs/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
 X0 <- fread("./inputs/WNAv12_2000m_Pts_Normal_1961_1990MSY.csv")
 #X0 <- X0 %>% dplyr::rename(BGC = ID2) #%>% dplyr::select(-V1, -ID1,-Latitude, -Longitude,-Elevation)
 #BGC_names <- fread("D:/CommonTables/BGC_maps/WNAv12_BGClist.csv")
@@ -223,108 +223,108 @@ X0[X0 == -9999] <- NA
 X0 <- X0[complete.cases(X0),]
 X0 <- addVars(X0)
 
-X0[,V1 := NULL]
-setnames(X0, old = "ID2", new = "BGC")
+X0[,ID1 := NULL]
+setnames(X0, old = c("V1","ID2"), new = c("ID1","BGC"))
 IDVars <- X0[,.(ID1,Latitude,Longitude)]
-X0 <- X0[,c("ID1","BGC",vs9), with = F] ## select the variable set here
+X0 <- X0[,c("ID1","BGC",vs8), with = F] ## select the variable set here
 
-no_nzv <- preProcess(X0[,!c("BGC","ID1")], method = c( "nzv"))
-no_nzv$method$remove
-no_corr <- findCorrelation(cor(X0[,!c("BGC","ID1")]), cutoff = .9, names = TRUE, verbose = F)
-toRemove <- unique(c(no_nzv$method$remove,no_corr))
-X0[,(toRemove) := NULL]
+# no_nzv <- preProcess(X0[,!c("BGC","ID1")], method = c( "nzv"))
+# no_nzv$method$remove
+# no_corr <- findCorrelation(cor(X0[,!c("BGC","ID1")]), cutoff = .9, names = TRUE, verbose = F)
+# toRemove <- unique(c(no_nzv$method$remove,no_corr))
+# X0[,(toRemove) := NULL]
 
 # X0 <- addInteractVars(X0)
 # X0 <- X0 %>% select(-Tmin_wt, -MCMT, -PPT_JAS, -PPT_MJ, -PPT_sm, -PPT_wt, -PPT.dormant, -PPT_sp, -MSP,  -PAS_sm )
 
 #X0 <- as.data.frame(X0)
-count_tp <- X0 %>% count(BGC)
-X0 <- X0 %>% select(BGC, everything())
-
-#X0 <- X0 %>% mutate_if (is.factor, as.character) %>% mutate_if(is_integer,as.numeric) %>% mutate_if (is.character, as.factor)
-
-### r remove outlier points}
-
-removeOutlier <- function(dat, alpha, numIDvars){
-  out <- foreach(curr = unique(as.character(dat$BGC)), .combine = rbind) %do% {
-    temp <- dat[dat$BGC == curr,]
-    md <- tryCatch(mahalanobis(temp[,-c(1:numIDvars)],
-                               center = colMeans(temp[,-c(1:numIDvars)]),
-                               cov = cov(temp[,-c(1:numIDvars)])), error = function(e) e)
-    if(!inherits(md,"error")){
-      ctf <- qchisq(1-alpha, df = ncol(temp)-1)
-      outl <- which(md > ctf)
-      cat("Removing", length(outl), "outliers from",curr, "; ")
-      if(length(outl) > 0){
-        temp <- temp[-outl,]
-      }
-    }
-    temp
-
-  }
-  return(out)
-}
-
-XX <- removeOutlier(X0, alpha = .011, numIDvars = 1) ###set alpha for removal of outlieres (2.5% = 3SD)
-X0 <- as.data.table(XX)
-
-X0[,Num := .N, by = .(BGC)]
-X0_OK <- as.data.table(X0[Num > 100 & Num < 500,])
-X0[,LogNum := log(Num,base = 10)]
-X0[Num <= 100, New := scales::rescale(LogNum, to = c(50,100))]
-X0[Num >= 500, New := scales::rescale(LogNum, to = c(500,1000))]
-X0[,New := as.integer(New)]
-
-X0temp <- as.data.table(X0[Num >= 500,])
-X0temp$BGC <- as.factor(X0temp$BGC)
-cl <- makeCluster(detectCores()-2)
-registerDoParallel(cl)
-
-X0_big <- foreach(unit = unique(X0temp$BGC), .combine = rbind,
-                  .packages = c("clhs","data.table")) %dopar% {
-  cat("Processing",unit,"\n")
-  temp <- X0temp[BGC == unit,]
-  num <- temp$New[1]
-  ##nz <- nearZeroVar(temp, names=T) ##do we need this?
-  lhs <- clhs(temp[,!c("BGC","Num","LogNum","New")],size = num, iter = 1000, use.cpp = T, simple = F)
-  res <- lhs$sampled_data
-  res$BGC <- unit
-  res
-}
-
-X0temp <- as.data.table(X0[Num <= 100,])# %>% filter (!(BGC == "ESSFxh_WA" | BGC == "IMAun_UT" | BGC == "MHun" ))
-X0_small <- X0temp %>% select(-New, -Num, -LogNum)
-
- foreach(unit = unique(X0temp$BGC), .combine = rbind, .packages = c("clhs","data.table")) %do% {
-  cat("Processing",unit,"\n")
-  temp <- X0temp[BGC == unit,] %>% mutate_if(is.integer,as.numeric)
-  temp$BGC <- as.numeric(as.factor(temp$BGC))
-  num <- (temp$New[1])/temp$Num[1]
-  temp <- as.data.table(temp)
-  tempSMOTE <- smotefamily::SMOTE(temp[,!c("BGC","Num","LogNum","New")],
-                             temp$BGC, K = 2, dup_size = ceiling(num))
-  newCases <- temp$New[1] - temp$Num[1]
-  synData <- tempSMOTE$syn_data
-  synData <- synData[sample(1:nrow(synData), size = newCases, replace = F),]
-  synData$class <- NULL
-  synData$BGC <- unit
-  synData
-}
-
-X0_OK[,Num := NULL]
-X0_OK<- X0_OK %>% select(-New,  -LogNum)
-XAll <- rbind(X0_small,X0_OK,X0_big)
-#XAll <- X0  ###unalanced data set
-XAll <- as.data.table(XAll)
-
-XAll[,BGC := as.factor(BGC)]
-XAll$BGC  <- droplevels(XAll$BGC)
+# count_tp <- X0 %>% count(BGC)
+# X0 <- X0 %>% select(BGC, everything())
+# 
+# #X0 <- X0 %>% mutate_if (is.factor, as.character) %>% mutate_if(is_integer,as.numeric) %>% mutate_if (is.character, as.factor)
+# 
+# ### r remove outlier points}
+# 
+# removeOutlier <- function(dat, alpha, numIDvars){
+#   out <- foreach(curr = unique(as.character(dat$BGC)), .combine = rbind) %do% {
+#     temp <- dat[dat$BGC == curr,]
+#     md <- tryCatch(mahalanobis(temp[,-c(1:numIDvars)],
+#                                center = colMeans(temp[,-c(1:numIDvars)]),
+#                                cov = cov(temp[,-c(1:numIDvars)])), error = function(e) e)
+#     if(!inherits(md,"error")){
+#       ctf <- qchisq(1-alpha, df = ncol(temp)-1)
+#       outl <- which(md > ctf)
+#       cat("Removing", length(outl), "outliers from",curr, "; ")
+#       if(length(outl) > 0){
+#         temp <- temp[-outl,]
+#       }
+#     }
+#     temp
+# 
+#   }
+#   return(out)
+# }
+# 
+# XX <- removeOutlier(X0, alpha = .011, numIDvars = 1) ###set alpha for removal of outlieres (2.5% = 3SD)
+# X0 <- as.data.table(XX)
+# 
+# X0[,Num := .N, by = .(BGC)]
+# X0_OK <- as.data.table(X0[Num > 100 & Num < 500,])
+# X0[,LogNum := log(Num,base = 10)]
+# X0[Num <= 100, New := scales::rescale(LogNum, to = c(50,100))]
+# X0[Num >= 500, New := scales::rescale(LogNum, to = c(500,1000))]
+# X0[,New := as.integer(New)]
+# 
+# X0temp <- as.data.table(X0[Num >= 500,])
+# X0temp$BGC <- as.factor(X0temp$BGC)
+# cl <- makeCluster(detectCores()-2)
+# registerDoParallel(cl)
+# 
+# X0_big <- foreach(unit = unique(X0temp$BGC), .combine = rbind,
+#                   .packages = c("clhs","data.table")) %dopar% {
+#   cat("Processing",unit,"\n")
+#   temp <- X0temp[BGC == unit,]
+#   num <- temp$New[1]
+#   ##nz <- nearZeroVar(temp, names=T) ##do we need this?
+#   lhs <- clhs(temp[,!c("BGC","Num","LogNum","New")],size = num, iter = 1000, use.cpp = T, simple = F)
+#   res <- lhs$sampled_data
+#   res$BGC <- unit
+#   res
+# }
+# 
+# X0temp <- as.data.table(X0[Num <= 100,])# %>% filter (!(BGC == "ESSFxh_WA" | BGC == "IMAun_UT" | BGC == "MHun" ))
+# X0_small <- X0temp %>% select(-New, -Num, -LogNum)
+# 
+#  foreach(unit = unique(X0temp$BGC), .combine = rbind, .packages = c("clhs","data.table")) %do% {
+#   cat("Processing",unit,"\n")
+#   temp <- X0temp[BGC == unit,] %>% mutate_if(is.integer,as.numeric)
+#   temp$BGC <- as.numeric(as.factor(temp$BGC))
+#   num <- (temp$New[1])/temp$Num[1]
+#   temp <- as.data.table(temp)
+#   tempSMOTE <- smotefamily::SMOTE(temp[,!c("BGC","Num","LogNum","New")],
+#                              temp$BGC, K = 2, dup_size = ceiling(num))
+#   newCases <- temp$New[1] - temp$Num[1]
+#   synData <- tempSMOTE$syn_data
+#   synData <- synData[sample(1:nrow(synData), size = newCases, replace = F),]
+#   synData$class <- NULL
+#   synData$BGC <- unit
+#   synData
+# }
+# 
+# X0_OK[,Num := NULL]
+# X0_OK<- X0_OK %>% select(-New,  -LogNum)
+# XAll <- rbind(X0_small,X0_OK,X0_big)
+# #XAll <- X0  ###unalanced data set
+# XAll <- as.data.table(XAll)
+# 
+# XAll[,BGC := as.factor(BGC)]
+# XAll$BGC  <- droplevels(XAll$BGC)
 
 ```
 
 The new rebalanced training set is 310 668 points. This training set is submitted to ranger to generate a final climate model of BGCs for western north america.
 
-```{r setup tidymodel}
+```{r mahalanobis distance}
 set.seed(234589)
 cores <- parallel::detectCores()
 cores
@@ -337,8 +337,9 @@ cores
 # X0[as.character(BGC) %chin% zeroVar, CMD := jitter(CMD, amount = 0.5)]
 
 BGC_Nums <- X0[,.(Num = .N), by = BGC]
+BGC_train <- X0[!BGC %in% BGC_Nums[Num < 35, BGC],]##remove BGCs with low numbers of points
 
-BGC_train <- X0[!BGC %in% BGC_Nums[Num < 25, BGC],]
+# This section was to try and remove linear dependance, but with pseudoinverse I don't think we need it
 # BGC_train[BGC_train == 0] <- 0.1
 # temp <- BGC_train[,lapply(.SD,function(x){range(x)[2] - range(x)[1]}),by = BGC, .SDcols = -"ID1"]
 # #BGC_train <- BGC_train[,lapply(.SD,as.numeric), .SDcols = -c("ID1","BGC"), by = .(ID1,BGC)]
@@ -347,7 +348,7 @@ BGC_train <- X0[!BGC %in% BGC_Nums[Num < 25, BGC],]
 #   BGC_train[BGC %in% zeroVar, (b) := jitter(get(b), amount = 3)]
 # }
 
-##proximity of centroids
+##proximity of centroids to each other
 library(StatMatch)
 library(corpcor)
 BGC_Centroids <- BGC_train[,lapply(.SD,mean,na.rm = T),by = BGC, .SDcols = -c("ID1")]
@@ -366,7 +367,7 @@ setnames(cent_dt, c("Unit1","Unit2","MahDist"))
 fwrite(cent_dt, "CentroidDistAllUnits_12var.csv")
 
 
-##simple mahalanobis distance
+##simple mahalanobis distance for mean and var
 BGC_train[,mahDist := mahalanobis(.SD, center = colMeans(.SD), cov = pseudoinverse(cov(.SD)), inverted = T), 
           .SDcols = -c("ID1"), by = BGC]
 Mah_Summ <- BGC_train[,.(Mean = mean(mahDist), Var = sd(mahDist), Quant = quantile(mahDist,0.9)), by = BGC]
@@ -374,12 +375,16 @@ Mah_Summ[BGC_Nums, NumPoints := i.Num, on = "BGC"]
 fwrite(Mah_Summ,"MD_Var12.csv")
 #BGC_train <- BGC_train[mahDist < 5,]
 
+##MD for each points compared to each centroid to determine which points are closer to a different centroid
+##Note this takes a while for the 2km dataset
 BGCs <- unique(as.character(BGC_train$BGC))
 data.table::setkey(BGC_train,BGC)
 distAll <- BGC_train[,.(ID1,BGC)]
-
+pb <- txtProgressBar(min = 0, max = length(BGCs),initial = 0)
+i = 0
 for(b in BGCs){
-  cat(b)
+  i = i+1
+  setTxtProgressBar(pb,i)
   curr <- BGC_train[BGC == b,!c("ID1","BGC")]
   centroid <- colMeans(curr)
   covInv <- pseudoinverse(cov(curr))
@@ -387,14 +392,25 @@ for(b in BGCs){
                               center = centroid,cov = covInv,inverted = T)]
 }
 
+##summarise
 mahAll <- melt(distAll, id.vars = c("ID1","BGC"))
 setnames(mahAll, old = c("variable","value"), new = c("Centroid","MD"))
 setkey(mahAll,ID1)
 minDist <- mahAll[order(MD),.SD[1L],by = ID1]
 minDist[,Same := BGC == Centroid]
-fwrite(minDist,"ClosestCentroid35VarReduced.csv")
+table(minDist$Same)
+fwrite(minDist,"ClosestCentroid35Var.csv")
+
+##join with training data
 BGC_train[minDist, Include := i.Same, on = "ID1"]
 fwrite(BGC_train,"FlaggedTrainingSet.csv")
+
+##create geopackage
+library(sf)
+pnts <- IDVars[minDist, on = "ID1"]
+pnts <- st_as_sf(pnts, coords = c("Latitude","Longitude"), crs = 4326)
+pnts <- st_transform(pnts, 3005)
+st_write(pnts, dsn = "TrainingPoints_MD35Var.gpkg")
 #minDist <- mahAll[, .SD[which.min(MD)], by = ID1]
 
 # BGCs <- unique(as.character(BGC_train$BGC))
@@ -406,21 +422,9 @@ fwrite(BGC_train,"FlaggedTrainingSet.csv")
 #   mdist <- mahalanobis(temp,center = centroid, cov = matInv, inverted = T)
 # }
 
-BGC_train[,mahDist := NULL]
-BGC_clean <- recipe(BGC ~ CMD+DD5+MCMT+Tmin_wt+MSP, data = BGC_train) %>%
-  step_classdist(all_predictors(), class = "BGC", 
-                 pool = F, mean_func = mean, prefix = "mahdist_")
+```
 
-mahDist <- prep(BGC_clean,training = BGC_train)
-mahOut <- bake(mahDist, new_data = BGC_train)
-mahAll <- as.data.table(mahOut)
-mahAll <- melt(mahAll[,!c("DD5","MSP","Tmin_wt","CMD","MCMT")], id.vars = c("ID1","BGC"))
-setnames(mahAll, old = c("variable","value"), new = c("Centroid","MD"))
-minDist <- mahAll[, .SD[which.min(MD)], by = ID1]
-rm(mahAll)
-gc()
-minDist[,Centroid := gsub("mahdist_","",Centroid)]
-minDist[,Same := BGC == Centroid]
+```{r setup tidymodel}
 
 BGC_recipe <- recipe(BGC ~ .,  data = BGC_train) %>%
     step_center(all_predictors()) %>%
