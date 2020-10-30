@@ -104,7 +104,7 @@ Y <- addVars(Y)
 # model_vars <- as.data.frame(model_vars) %>% tibble::rownames_to_column()
 
 ## load ranger model
-load("./BGC_models/WNAv12_Subzone_92_Var_ranger_reduced4.Rdata")
+load("./BGC_models/WNAv12_Subzone_24_Var_ranger_MDreduced3_DropSomeDistricts_alwayssplit.Rdata")
 model_vars <- as.data.frame(BGCmodel2$variable.importance) %>% tibble::rownames_to_column()
 BGCmodel <- BGCmodel2
 
@@ -176,8 +176,8 @@ t2 <- t2 %>% st_buffer(0)
 BGC_area <- t2 %>%
   mutate(Area = st_area(.)) %>% mutate (Area = Area/1000000) %>%
   mutate(ID = seq_along(BGC)) %>% dplyr::select(BGC, Area) %>% st_set_geometry(NULL)
-write.csv(BGC_area, paste0("./outputs/", region, "_", timeperiod, "_", covcount, "_BGC_area_predicted_reduced_4e.csv"))
-st_write(t2, dsn = paste0("./outputs/", covcount, "_", "Subzone_Map_hex400_dissolved.gpkg"), layer = paste0(region, "_", timeperiod, "_", region , "_vars_ranger_reduced_4e"), driver = "GPKG", delete_layer = TRUE)
+write.csv(BGC_area, paste0("./outputs/", region, "_", timeperiod, "_", covcount, "_BGC_area_predicted_MDreduced.csv"))
+st_write(t2, dsn = paste0("./outputs/", covcount, "_", "Subzone_Map_hex400_dissolved.gpkg"), layer = paste0(region, "_", timeperiod, "_", region , "_vars_ranger_MD_District5"), driver = "GPKG", delete_layer = TRUE)
                                                                                                        
 
 ```
