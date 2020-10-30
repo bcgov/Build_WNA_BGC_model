@@ -164,18 +164,18 @@ vs6 <- read.csv("./outputs/35Var_WNABGCv11.csv") ### from current and future = u
 vs6 <- vs6$rowname
 vs7 <- c("MWMT","MSP","SHM","DD5_sp", "DD5_sm","NFFD","bFFP",
          "PAS","Eref","CMDMax","Tmin_wt","Tave_sm", "CMD.total")
-vs8 <- c("Tave_at","MWMT", "DD5_at",   "DD5_sm",   "DD5_sp", "DD5_wt",
+vs8 <- c("Tave_at","MWMT", "DD5_at",   "DD5_sm",   "DD5_sp", "DD5_wt", # 35 variable
             "Eref_sm",   "Eref_sp",
          "Tmin_wt", "MCMT","Tmin_sp",
          "PPT_JAS",  "PPT_MJ",  "PPT_sm","MSP","PPT_sp",
          "CMD_sp","CMD_at", "CMD.def", "CMDMax","CMD","CMD.total","SHM","AHM",
           "Tmax_sp", "Tmax_sm", 
           "bFFP",  "eFFP",  "NFFD", 
-          "PAS_wt",  "PAS_at",  "PAS_sp", "PPT_wt","PPT.dormant","PAS_sm")#, "TD")
+          "PAS_wt",  "PAS_at",  "PAS_sp", "PPT_wt","PPT.dormant","PAS_sm")
 
-vs9 <- c( "DD5_at",   "DD5_sm",   "DD5_sp", #"DD5_wt","Tave_at",
-            "Eref_sm",   "Eref_sp", "TD",
-           "Tmin_sp", #Tmin_wt","EMT","MCMT",
+vs9 <- c( "DD5_at",   "DD5_sm",   "DD5_sp", "DD5", #"DD5_wt","Tave_at",
+            "Eref_sm",   "Eref_sp", #"TD",
+           #"Tmin_sp", "MCMT", #Tmin_wt","EMT",
          "PPT_sm","MSP","PPT_sp",# "PPT_JAS",  "PPT_MJ", 
          "CMD_sp","CMDMax","CMD.total", #"CMD","CMD_at",
          "SHM","AHM",# "CMD.def",
@@ -215,35 +215,63 @@ vs15 <- c("MSP", "NFFD", "DD5_sp", "CMD.total") ### Coast vs Interior
 
 ```{r load and prep training data}
 X0 <- fread("./inputs/WNAv12_2000m_Pts_Normal_1961_1990MSY.csv")
+X0 <- X0 %>% select(-ID1) %>% rename(ID1 = V1) %>% dplyr::rename(BGC = ID2)#tibble::rownames_to_column("ID1") #
 #X0 <- fread("./inputs/BC_2000m_Pts_Normal_1961_1990MSY_reduced.csv")
-X0 <- X0 %>% dplyr::rename(BGC = ID2) #%>% dplyr::select(-V1, -ID1,-Latitude, -Longitude,-Elevation)
+#X0 <- fread("./inputs/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+Xreduce <- fread("./inputs/ClosestCentroid35Var.csv")
+Xreduce <- Xreduce %>% dplyr::select(-BGC)
+Xjoin <- left_join(Xreduce, X0,  by = "ID1") 
+XDistrict <- fread("./inputs/WNA_2k_ID_District.csv") %>% select(-Latitude,-Longitude)
+Xjoin <- left_join(Xjoin, XDistrict)
+XTSA <- fread("./inputs/WNA_2k_ID_TSA.csv" )%>% select(-Latitude,-Longitude)
+Xjoin <- left_join(Xjoin, XTSA)
+Xjoin <- Xjoin %>% filter (!(BGC == 'CWHws2' & Dist_Code == 'DSS')) %>%
+                      filter (!(BGC == 'CWHws2' & Dist_Code == 'DND')) %>% 
+                        filter (!(BGC == 'ICHmc2' & Dist_Code == 'DND')) %>% 
+                    filter (!(BGC == 'ICHmc2' & Dist_Code == 'DSS')) %>% 
+                     filter (!(BGC == 'SBSmc2' & Dist_Code == 'DNI')) %>%  
+                    filter (!(BGC == 'CWHms1' & Dist_Code == 'DCS')) %>% 
+                         filter (!(BGC == 'CWHms1' & Dist_Code == 'DCC')) %>% 
+                       filter (!(BGC == 'CWHds1' & Dist_Code == 'DCC')) %>% 
+                         filter (!(BGC == 'IDFdk1' & Dist_Code == 'DOS'))                    
+##---------Create BGC+District units
+      #Xjoin <- Xjoin %>% unite(BGC, c("ID2","Dist_Code"))
+      #X0 <- Xjoin %>%  filter(Same == "TRUE") %>% dplyr::select(-ID1,-Latitude, -Longitude,-Elevation, -Same, -Centroid, -MD, -TSA)
+    ### Output file to look at excluded training points in QGIS
+    #X0_site <- Xjoin %>% select(ID1, ID2, Latitude, Longitude, Same, Centroid, MD) 
+    #write.csv (X0_site, "./outputs/2kmPoints_outliers2.csv")
+#
+X0 <- Xjoin  %>% filter(Same == "TRUE") %>% dplyr::select(-ID1,-Latitude, -Longitude,-Elevation, -Same, -Centroid, -MD, -TSA, -Dist_Code)## %>% dplyr::rename(BGC = ID2)
 #BGC_names <- fread("D:/CommonTables/BGC_maps/WNAv12_BGClist.csv")
+
 ###removing coast transition mapping/climate surface problems
-bad_bgcs <- c('MSdm3', 'ESSFdc3', 'ICHmk2')
-#------------reduced 1 Coast Tranistion Units
-X0_removed <- X0 %>% filter (!(BGC == 'CWHws2' & MCMT <= -7)) %>% 
-                        filter (!(BGC == 'CWHds1' & MCMT <= -4)) %>% 
-                        filter (!(BGC == 'CWHds2' & MCMT <= -6)) %>%   
-                         filter (!(BGC == 'CWHms2' & MCMT <= -6)) %>%  
-                           filter (!(BGC == 'CWHws2' & MCMT <= -6.5)) %>% 
-                          filter (!(BGC == 'ICHmc2' & MCMT <= -8.5)) %>% 
-                          filter (!(BGC == 'ICHmc1' & MCMT <= -9.5)) %>% 
-                          filter (!(BGC == 'MHmm2' & MCMT <= -9)) %>% 
-  #-------------------reduced 2
-                            filter (!(BGC == 'IDFdk1' & DD5 >= 900)) %>% 
-                            filter (!(BGC == 'IDFxm' & DD5 >= 1150)) %>% 
-                            filter (!(BGC == 'IDFdk2' & DD5 >= 1000)) %>% 
+      #bad_bgcs <- c('MSdm3', 'ESSFdc3', 'ICHmk2', 'IDFdc', 'SBSun')
+###------------reduced 1 Coast Tranistion Units occuring in the interior
+X0_removed <- X0 %>% filter (!(BGC == 'CWHws2' & MCMT <= -7)) %>%
+                        filter (!(BGC == 'CWHds1' & MCMT <= -4)) %>%
+                        filter (!(BGC == 'CWHds2' & MCMT <= -6)) %>%
+                         filter (!(BGC == 'CWHms2' & MCMT <= -6)) %>%
+                           filter (!(BGC == 'CWHws2' & MCMT <= -6.5)) %>%
+                          filter (!(BGC == 'ICHmc2' & MCMT <= -8.5)) %>%
+                          filter (!(BGC == 'ICHmc1' & MCMT <= -9.5)) %>%
+                          filter (!(BGC == 'MHmm2' & MCMT <= -9)) %>%
+  #-------------------reduced 2 droughty BGCs with dirty CMD
+                           filter (!(BGC == 'IDFdk1' & CMD <= 290)) %>%
+                            filter (!(BGC == 'IDFxm' & CMD <= 320)) %>%
+                            filter (!(BGC == 'IDFdk2' & DD5 <= 1000)) %>%
+                              filter (!(BGC == 'ESSFdc2' & CMD <= 130)) %>%
   #-------------------reduced 3 BGCs around Kamloops with very mixed mapping
 
-                            filter (!(BGC %in% bad_bgcs)) %>% 
+                            #filter (!(BGC %in% bad_bgcs)) %>%
   #-------------------reduce 4  Variable Kamloops units
-                            filter (!(BGC == 'MSxk2' & MSP >= 225)) %>% 
-                            filter (!(BGC == 'IDFxh2' & MSP >= 200)) %>%                               
-                            filter (!(BGC == 'ESSFdc2' & Longitude >= -120.5)) %>% 
-                              filter (!(BGC == 'MSdm2' & CMD <= 225))
+                            filter (!(BGC == 'MSxk2' & MSP >= 225)) %>%
+                            filter (!(BGC == 'IDFxh2' & MSP >= 200)) %>%
+#                            filter (!(BGC == 'ESSFdc2' & Longitude >= -120.5)) %>%
+                              filter (!(BGC == 'MSdm2' & MSP >= 215))
 
   X0 <- X0_removed
-# bgcs <- BGC_names
+
+  # bgcs <- BGC_names
 # X0 <- inner_join(X0, BGC_names) %>% select(-BGC) 
 # X0$BGC <- X0$Zone
 #X0$BGC <-   dplyr::recode(X0$BGC, MS = "SBS_MS", SBS = "SBS_MS", SBPS = "SBS_MS", BWBS = "SBS_MS", SWB = "SBS_MS", ESSF= "SBS_MS",.default = "Not_Boreal")
@@ -260,19 +288,18 @@ X0[X0 == -9999] <- NA
 X0 <- X0[complete.cases(X0),]
 X0 <- addVars(X0)
 
-X0 <- X0[,c("BGC",vs2), with = F] ## select the variable set here
-
+X0 <- X0[,c("BGC",vs9), with = F] ## select the variable set here
+xx <- X0 %>% filter(BGC == "IDFdk1")
 # X0 <- addInteractVars(X0)
 # X0 <- X0 %>% select(-Tmin_wt, -MCMT, -PPT_JAS, -PPT_MJ, -PPT_sm, -PPT_wt, -PPT.dormant, -PPT_sp, -MSP,  -PAS_sm )
 
 #X0 <- as.data.frame(X0)
 count_tp <- X0 %>% count(BGC)
 X0 <- X0 %>% select(BGC, everything())
-
-#X0 <- X0 %>% mutate_if (is.factor, as.character) %>% mutate_if(is_integer,as.numeric) %>% mutate_if (is.character, as.factor)
+Xoutlier <- X0 %>% select(BGC, CMD.total, DD5, MSP, NFFD)%>% mutate_if(is_integer,as.numeric) 
+#X0 <- X0 %>% mutate_if (is.factor, as.character) %>% mutate_if(is_integer,as.numeric) %>% mutate_if(is.character, as.factor)
 
 ### r remove outlier points}
-
 removeOutlier <- function(dat, alpha, numIDvars){
   out <- foreach(curr = unique(as.character(dat$BGC)), .combine = rbind) %do% {
     temp <- dat[dat$BGC == curr,]
@@ -280,7 +307,7 @@ removeOutlier <- function(dat, alpha, numIDvars){
                                center = colMeans(temp[,-c(1:numIDvars)]),
                                cov = cov(temp[,-c(1:numIDvars)])), error = function(e) e)
     if(!inherits(md,"error")){
-      ctf <- qchisq(1-alpha, df = ncol(temp)-1)
+      ctf <- qchisq(1 - alpha, df = ncol(temp)-1)
       outl <- which(md > ctf)
       cat("Removing", length(outl), "outliers from",curr, "; ")
       if(length(outl) > 0){
@@ -293,6 +320,8 @@ removeOutlier <- function(dat, alpha, numIDvars){
   return(out)
 }
 
+#Xoutlier2 <- Xoutlier %>% filter(BGC == "IDFdk1")
+#XX1 <- removeOutlier(Xoutlier, alpha = .01, numIDvars = 1) ###set alpha for removal of outlieres (2.5% = 3SD)
 XX <- removeOutlier(X0, alpha = .011, numIDvars = 1) ###set alpha for removal of outlieres (2.5% = 3SD)
 X0 <- as.data.table(XX)
 
@@ -303,7 +332,7 @@ X0[Num <= 100, New := scales::rescale(LogNum, to = c(50,100))]
 X0[Num >= 500, New := scales::rescale(LogNum, to = c(500,1000))]
 X0[,New := as.integer(New)]
 
-X0temp <- as.data.table(X0[Num >= 500,])
+X0temp <- as.data.table(X0[Num > 500,])
 X0temp$BGC <- as.factor(X0temp$BGC)
 cl <- makeCluster(detectCores()-2)
 registerDoParallel(cl)
@@ -313,15 +342,15 @@ X0_big <- foreach(unit = unique(X0temp$BGC), .combine = rbind,
   cat("Processing",unit,"\n")
   temp <- X0temp[BGC == unit,]
   num <- temp$New[1]
-  ##nz <- nearZeroVar(temp, names=T) ##do we need this?
-  lhs <- clhs(temp[,!c("BGC","Num","LogNum","New")],size = num, iter = 1000, use.cpp = T, simple = F)
+  #nz <- nearZeroVar(temp, names=T) ##do we need this?
+  lhs <- clhs(temp[,!c("BGC","Num","LogNum","New")],size = (num -1), iter = 1000, use.cpp = T, simple = F)
   res <- lhs$sampled_data
   res$BGC <- unit
   res
 }
 
 X0temp <- as.data.table(X0[Num <= 100,])# %>% filter (!(BGC == "ESSFxh_WA" | BGC == "IMAun_UT" | BGC == "MHun" ))
-X0_small <- X0temp %>% select(-New, -Num, -LogNum)
+#X0_small <- X0temp %>% select(-New, -Num, -LogNum)
 
  foreach(unit = unique(X0temp$BGC), .combine = rbind, .packages = c("clhs","data.table")) %do% {
   cat("Processing",unit,"\n")
@@ -340,7 +369,7 @@ X0_small <- X0temp %>% select(-New, -Num, -LogNum)
 }
 
 X0_OK[,Num := NULL]
-X0_OK<- X0_OK %>% select(-New,  -LogNum)
+#X0_OK<- X0_OK %>% select(-New,  -LogNum)
 XAll <- rbind(X0_small,X0_OK,X0_big)
 #XAll <- X0  ###unalanced data set
 XAll <- as.data.table(XAll)
@@ -353,12 +382,12 @@ XAll$BGC  <- droplevels(XAll$BGC)
 The new rebalanced training set is 310 668 points. This training set is submitted to ranger to generate a final climate model of BGCs for western north america.
 
 ```{r build final ranger model with larger training point size, cache = TRUE, echo=FALSE}
-X0[,BGC := as.factor(BGC)]
-XAll2 <- X0# %>% select(-MCMT, -Tmin_wt)
+#X0[,BGC := as.factor(BGC)]
+#XAll2 <- X0# %>% select(-MCMT, -Tmin_wt)
 BGCmodel2 <- ranger(BGC ~ ., data = XAll,
                            num.trees = 101,  seed = 12345,
                             splitrule =  "extratrees", #""gini",
-                            always.split.variables = c("DD5_sp","CMD.total", "MSP"), #,
+                            always.split.variables = c("DD5","CMD.total", "MSP"), #,
                             #mtry = 8,
                           #max.depth = .5,
                     #min.node.size = 2,
@@ -374,7 +403,7 @@ covcount <- count(DF)
    guides(fill=F)+
    scale_fill_gradient(low="red", high="blue")
  
-save(BGCmodel2,file= paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_ranger_reduced4.Rdata"))
+save(BGCmodel2,file= paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_ranger_MDreduced3_DropSomeDistricts_alwayssplit.Rdata"))
 test <- treeInfo(BGCmodel2,1)
 # test
 # #
