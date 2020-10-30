@@ -34,6 +34,7 @@ library(tidyverse)
 require(tidymodels)
 require(vip)
 require(stringr)
+require(corpcor)
 #require (gstat)
 #install.packages("smotefamily", dependencies = TRUE)
 #data.dir = "./inputs/"
@@ -170,14 +171,14 @@ vs17 <- c("CMD","DD5","MCMT","Tmin_wt","MSP")
 #X0 <- fread("./inputs/WNAv12_2000m_Pts_Normal_1961_1990MSY.csv")
 #X0 <- fread("./inputs/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
 X0 <- fread("./inputs/WNAv12_2000m_Pts_Normal_1961_1990MSY.csv")
-<<<<<<< HEAD
+
 X0 <- X0 %>% select(-ID1) %>% rename(ID1 = V1) %>% dplyr::rename(BGC = ID2)#tibble::rownames_to_column("ID1") #
 #X0 <- fread("./inputs/BC_2000m_Pts_Normal_1961_1990MSY_reduced.csv")
 #X0 <- fread("./inputs/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
-Xreduce <- fread("./inputs/ClosestCentroid35Var.csv")
+Xreduce <- fread("./ClosestCentroid35Var.csv")
 Xreduce <- Xreduce %>% dplyr::select(-BGC)
 Xjoin <- left_join(Xreduce, X0,  by = "ID1") 
-XDistrict <- fread("./inputs/WNA_2k_ID_District.csv") %>% select(-Latitude,-Longitude)
+XDistrict <- fread("./WNA_2k_ID_District.csv") %>% select(-Latitude,-Longitude)
 Xjoin <- left_join(Xjoin, XDistrict)
 XTSA <- fread("./inputs/WNA_2k_ID_TSA.csv" )%>% select(-Latitude,-Longitude)
 Xjoin <- left_join(Xjoin, XTSA)
@@ -310,29 +311,18 @@ Xoutlier <- X0 %>% select(BGC, CMD.total, DD5, MSP, NFFD)%>% mutate_if(is_intege
 #X0 <- X0 %>% mutate_if (is.factor, as.character) %>% mutate_if(is_integer,as.numeric) %>% mutate_if(is.character, as.factor)
 
 ### r remove outlier points}
-removeOutlier <- function(dat, alpha, numIDvars){
-  out <- foreach(curr = unique(as.character(dat$BGC)), .combine = rbind) %do% {
-    temp <- dat[dat$BGC == curr,]
-    md <- tryCatch(mahalanobis(temp[,-c(1:numIDvars)],
-                               center = colMeans(temp[,-c(1:numIDvars)]),
-                               cov = cov(temp[,-c(1:numIDvars)])), error = function(e) e)
-    if(!inherits(md,"error")){
-      ctf <- qchisq(1 - alpha, df = ncol(temp)-1)
-      outl <- which(md > ctf)
-      cat("Removing", length(outl), "outliers from",curr, "; ")
-      if(length(outl) > 0){
-        temp <- temp[-outl,]
-      }
-    }
-    temp
-
-  }
-  return(out)
+removeOutlier <- function(dat, alpha){
+  temp <- as.data.table(dat)
+  temp[,MD := mahalanobis(.SD,center = colMeans(.SD),cov = pseudoinverse(cov(.SD)), inverted = T), by = BGC]
+  ctf <- qchisq(1-alpha, df = ncol(temp)-1)
+  temp <- temp[MD < ctf,]
+  return(temp)
 }
 
 #Xoutlier2 <- Xoutlier %>% filter(BGC == "IDFdk1")
 #XX1 <- removeOutlier(Xoutlier, alpha = .01, numIDvars = 1) ###set alpha for removal of outlieres (2.5% = 3SD)
-XX <- removeOutlier(X0, alpha = .011, numIDvars = 1) ###set alpha for removal of outlieres (2.5% = 3SD)
+###outlier function requires 1 column labeled BGC and no other id columns
+XX <- removeOutlier(Xoutlier, alpha = 0.4) ###set alpha for removal of outlieres (2.5% = 3SD)
 X0 <- as.data.table(XX)
 
 count_tp <- X0 %>% count(BGC)
