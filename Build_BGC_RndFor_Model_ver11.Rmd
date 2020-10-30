@@ -10,34 +10,25 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, message = FALSE)
 require (smotefamily)
-#require (UBL) ## UBL conflicts with another package if loaded after a package in the list below
-require(tcltk)
 require(data.table)
 library(randtoolbox)
 library(clhs)
 library(foreign)
 library(ggplot2)
 library(raster)
-library(rgdal)
 library(RStoolbox)
 library(maptools)
 library(sp)
 library(spatstat)
 require(doParallel)
 require(scales)
-require(data.table)
-require(plyr)
-require (DMwR)
-require (dplyr)
+require(sf)
 require(caret)
 require (gstat)
-require (tidyr)
 require(ranger)
 require(rticles)
 require(expss)
-require(purrr)
 require(tictoc)
-require(smotefamily)
 require(randomForest)
 library(tidyverse)
 require(tidymodels)
@@ -75,47 +66,7 @@ addVars <- function(dat){
 }
 
 
-# addInteractVars <- function(dat){
-#     BGC_recipe <- recipe(BGC ~ .,  data = dat) ###cold BGCs (SBS, ESSF)
-# interact_2 <- BGC_recipe %>%
-#   step_interact(terms = ~ Tmin_wt:DD5_sp)
-# interact_2 <- prep(interact_2, training = dat)
-# dat <- bake(interact_2,dat)
-# 
-# BGC_recipe <- recipe(BGC ~ .,  data = dat) ###dry warm (IDF, PP, BG)
-# interact_3 <- BGC_recipe %>%
-#   step_interact(terms = ~ CMD.total:DD5_sp)
-# interact_3 <- prep(interact_3, training = dat)
-# dat <- bake(interact_3,dat)
-# 
-# BGC_recipe <- recipe(BGC ~ .,  data = dat) ### low drought from cold vs low drought from precip
-# interact_4 <- BGC_recipe %>%
-#   step_interact(terms = ~ CMD.total:MSP)
-# interact_4 <- prep(interact_4, training = dat)
-# dat <- bake(interact_4,dat)
-# 
-# BGC_recipe <- recipe(BGC ~ .,  data = dat) ## 
-# interact_5 <- BGC_recipe %>%
-#   step_interact(terms = ~ CMD.total:MSP:DD5_sp)
-# interact_5 <- prep(interact_5, training = dat)
-# dat <- bake(interact_5,dat)
-# 
-# BGC_recipe <- recipe(BGC ~ .,  data = dat)
-# interact_1 <- BGC_recipe %>%
-#   step_interact(terms = ~ CMD.total:MSP:DD5_sp:Tmin_wt)
-# interact_1 <- prep(interact_1, training = dat)
-# dat <- bake(interact_1,dat)
-# 
-# BGC_recipe <- recipe(BGC ~ .,  data = dat) ##Coast vs interior Continentaliy plus growing 
-# interact_6 <- BGC_recipe %>%
-#   step_interact(terms = ~ CCI:DD5_sp)
-# interact_6 <- prep(interact_6, training = dat)
-# dat <- bake(interact_6,dat)
-#   #   
-#   #   (dat$PAS10 + dat$PAS11  + dat$PAS12 + dat$PAS01 + dat$PAS02 + dat$PAS03 + dat$PAS04 ) - ((dat$DD5_11 + dat$DD5_wt  + dat$DD5_03) * 50)
-#   # dat$Snow <- ifelse (dat$Snow <0, 0, dat$Snow)
-#  return(dat)
-#}
+
 ```
 
 Points from a 8km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
@@ -205,6 +156,9 @@ vs14 <- c("TD", "NFFD", "DD5", "FFP", "Tmin_wt") ### Coast vs Interior
 
 vs15 <- c("MSP", "NFFD", "DD5_sp", "CMD.total") ### Coast vs Interior
       #     #
+vs16 <- c("MWMT","MSP","SHM","DD5_sp", "DD5_sm","NFFD","bFFP",
+         "PAS","Eref","CMDMax","Tmin_wt","Tave_sm", "CMD.total","CMD","DD5","MCMT")
+vs17 <- c("CMD","DD5","MCMT","Tmin_wt","MSP")
 # control <- rfeControl(functions = rfFuncs, method = "cv", number = 10)
 # X1temp <- X1 %>%  na_if(-9999.0) %>% drop_na()
 # X1temp[,BGC := as.factor(BGC)]
@@ -212,9 +166,11 @@ vs15 <- c("MSP", "NFFD", "DD5_sp", "CMD.total") ### Coast vs Interior
 ```
 
 
-
 ```{r load and prep training data}
+#X0 <- fread("./inputs/WNAv12_2000m_Pts_Normal_1961_1990MSY.csv")
+#X0 <- fread("./inputs/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
 X0 <- fread("./inputs/WNAv12_2000m_Pts_Normal_1961_1990MSY.csv")
+<<<<<<< HEAD
 X0 <- X0 %>% select(-ID1) %>% rename(ID1 = V1) %>% dplyr::rename(BGC = ID2)#tibble::rownames_to_column("ID1") #
 #X0 <- fread("./inputs/BC_2000m_Pts_Normal_1961_1990MSY_reduced.csv")
 #X0 <- fread("./inputs/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
@@ -242,9 +198,13 @@ Xjoin <- Xjoin %>% filter (!(BGC == 'CWHws2' & Dist_Code == 'DSS')) %>%
     #write.csv (X0_site, "./outputs/2kmPoints_outliers2.csv")
 #
 X0 <- Xjoin  %>% filter(Same == "TRUE") %>% dplyr::select(-ID1,-Latitude, -Longitude,-Elevation, -Same, -Centroid, -MD, -TSA, -Dist_Code)## %>% dplyr::rename(BGC = ID2)
+
+#X0 <- X0 %>% dplyr::rename(BGC = ID2) #%>% dplyr::select(-V1, -ID1,-Latitude, -Longitude,-Elevation)
+
 #BGC_names <- fread("D:/CommonTables/BGC_maps/WNAv12_BGClist.csv")
 
 ###removing coast transition mapping/climate surface problems
+
       #bad_bgcs <- c('MSdm3', 'ESSFdc3', 'ICHmk2', 'IDFdc', 'SBSun')
 ###------------reduced 1 Coast Tranistion Units occuring in the interior
 X0_removed <- X0 %>% filter (!(BGC == 'CWHws2' & MCMT <= -7)) %>%
@@ -272,6 +232,33 @@ X0_removed <- X0 %>% filter (!(BGC == 'CWHws2' & MCMT <= -7)) %>%
   X0 <- X0_removed
 
   # bgcs <- BGC_names
+
+# bad_bgcs <- c('MSdm3', 'ESSFdc3', 'ICHmk2')
+# #------------reduced 1 Coast Tranistion Units
+# X0_removed <- X0 %>% filter (!(BGC == 'CWHws2' & MCMT <= -7)) %>% 
+#                         filter (!(BGC == 'CWHds1' & MCMT <= -4)) %>% 
+#                         filter (!(BGC == 'CWHds2' & MCMT <= -6)) %>%   
+#                          filter (!(BGC == 'CWHms2' & MCMT <= -6)) %>%  
+#                            filter (!(BGC == 'CWHws2' & MCMT <= -6.5)) %>% 
+#                           filter (!(BGC == 'ICHmc2' & MCMT <= -8.5)) %>% 
+#                           filter (!(BGC == 'ICHmc1' & MCMT <= -9.5)) %>% 
+#                           filter (!(BGC == 'MHmm2' & MCMT <= -9)) %>% 
+#   #-------------------reduced 2
+#                             filter (!(BGC == 'IDFdk1' & DD5 >= 900)) %>% 
+#                             filter (!(BGC == 'IDFxm' & DD5 >= 1150)) %>% 
+#                             filter (!(BGC == 'IDFdk2' & DD5 >= 1000)) %>% 
+#   #-------------------reduced 3 BGCs around Kamloops with very mixed mapping
+# 
+#                             filter (!(BGC %in% bad_bgcs)) %>% 
+#   #-------------------reduce 4  Variable Kamloops units
+#                             filter (!(BGC == 'MSxk2' & MSP >= 225)) %>% 
+#                             filter (!(BGC == 'IDFxh2' & MSP >= 200)) %>%                               
+#                             filter (!(BGC == 'ESSFdc2' & Longitude >= -120.5)) %>% 
+#                               filter (!(BGC == 'MSdm2' & CMD <= 225))
+# 
+#   X0 <- X0_removed
+# bgcs <- BGC_names
+
 # X0 <- inner_join(X0, BGC_names) %>% select(-BGC) 
 # X0$BGC <- X0$Zone
 #X0$BGC <-   dplyr::recode(X0$BGC, MS = "SBS_MS", SBS = "SBS_MS", SBPS = "SBS_MS", BWBS = "SBS_MS", SWB = "SBS_MS", ESSF= "SBS_MS",.default = "Not_Boreal")
@@ -288,12 +275,35 @@ X0[X0 == -9999] <- NA
 X0 <- X0[complete.cases(X0),]
 X0 <- addVars(X0)
 
-X0 <- X0[,c("BGC",vs9), with = F] ## select the variable set here
+
 xx <- X0 %>% filter(BGC == "IDFdk1")
+
+X0[,ID1 := NULL]
+setnames(X0, old = c("V1","ID2"), new = c("ID1","BGC"))
+IDVars <- X0[,.(ID1,Latitude,Longitude)]
+X0 <- X0[,c("ID1","BGC",vs8), with = F] ## select the variable set here
+
+# dists <- st_read(dsn = "./inputs/TSA_Boundaries.gpkg")
+# pnts <- st_as_sf(IDVars, coords = c("Longitude","Latitude"), crs = 4326)
+# dists <- dists["TSA_NUMB_1"]
+# dists <- st_transform(dists,4326)
+# pnts2 <- st_join(pnts,dists,left = F)
+# pnts2 <- st_drop_geometry(pnts2)
+# pnts2 <- as.data.table(pnts2)
+# IDVars[pnts2, TSA := i.TSA_NUMB_1, on = "ID1"]
+# fwrite(IDVars,"WNA_2k_ID_TSA.csv")
+# no_nzv <- preProcess(X0[,!c("BGC","ID1")], method = c( "nzv"))
+# no_nzv$method$remove
+# no_corr <- findCorrelation(cor(X0[,!c("BGC","ID1")]), cutoff = .9, names = TRUE, verbose = F)
+# toRemove <- unique(c(no_nzv$method$remove,no_corr))
+# X0[,(toRemove) := NULL]
+
+
 # X0 <- addInteractVars(X0)
 # X0 <- X0 %>% select(-Tmin_wt, -MCMT, -PPT_JAS, -PPT_MJ, -PPT_sm, -PPT_wt, -PPT.dormant, -PPT_sp, -MSP,  -PAS_sm )
 
 #X0 <- as.data.frame(X0)
+
 count_tp <- X0 %>% count(BGC)
 X0 <- X0 %>% select(BGC, everything())
 Xoutlier <- X0 %>% select(BGC, CMD.total, DD5, MSP, NFFD)%>% mutate_if(is_integer,as.numeric) 
@@ -325,6 +335,36 @@ removeOutlier <- function(dat, alpha, numIDvars){
 XX <- removeOutlier(X0, alpha = .011, numIDvars = 1) ###set alpha for removal of outlieres (2.5% = 3SD)
 X0 <- as.data.table(XX)
 
+count_tp <- X0 %>% count(BGC)
+X0 <- X0 %>% select(BGC, everything())
+
+#X0 <- X0 %>% mutate_if (is.factor, as.character) %>% mutate_if(is_integer,as.numeric) %>% mutate_if (is.character, as.factor)
+
+### r remove outlier points}
+
+removeOutlier <- function(dat, alpha, numIDvars){
+  out <- foreach(curr = unique(as.character(dat$BGC)), .combine = rbind) %do% {
+    temp <- dat[dat$BGC == curr,]
+    md <- tryCatch(mahalanobis(temp[,-c(1:numIDvars)],
+                               center = colMeans(temp[,-c(1:numIDvars)]),
+                               cov = cov(temp[,-c(1:numIDvars)])), error = function(e) e)
+    if(!inherits(md,"error")){
+      ctf <- qchisq(1-alpha, df = ncol(temp)-1)
+      outl <- which(md > ctf)
+      cat("Removing", length(outl), "outliers from",curr, "; ")
+      if(length(outl) > 0){
+        temp <- temp[-outl,]
+      }
+    }
+    temp
+
+  }
+  return(out)
+}
+
+XX <- removeOutlier(X0, alpha = .011, numIDvars = 1) ###set alpha for removal of outlieres (2.5% = 3SD)
+X0 <- as.data.table(XX)
+
 X0[,Num := .N, by = .(BGC)]
 X0_OK <- as.data.table(X0[Num > 100 & Num < 500,])
 X0[,LogNum := log(Num,base = 10)]
@@ -332,6 +372,157 @@ X0[Num <= 100, New := scales::rescale(LogNum, to = c(50,100))]
 X0[Num >= 500, New := scales::rescale(LogNum, to = c(500,1000))]
 X0[,New := as.integer(New)]
 
+X0temp <- as.data.table(X0[Num >= 500,])
+X0temp$BGC <- as.factor(X0temp$BGC)
+cl <- makeCluster(detectCores()-2)
+registerDoParallel(cl)
+
+X0_big <- foreach(unit = unique(X0temp$BGC), .combine = rbind,
+                  .packages = c("clhs","data.table")) %dopar% {
+  cat("Processing",unit,"\n")
+  temp <- X0temp[BGC == unit,]
+  num <- temp$New[1]
+  ##nz <- nearZeroVar(temp, names=T) ##do we need this?
+  lhs <- clhs(temp[,!c("BGC","Num","LogNum","New")],size = num, iter = 1000, use.cpp = T, simple = F)
+  res <- lhs$sampled_data
+  res$BGC <- unit
+  res
+}
+
+X0temp <- as.data.table(X0[Num <= 100,])# %>% filter (!(BGC == "ESSFxh_WA" | BGC == "IMAun_UT" | BGC == "MHun" ))
+X0_small <- X0temp %>% select(-New, -Num, -LogNum)
+
+ foreach(unit = unique(X0temp$BGC), .combine = rbind, .packages = c("clhs","data.table")) %do% {
+  cat("Processing",unit,"\n")
+  temp <- X0temp[BGC == unit,] %>% mutate_if(is.integer,as.numeric)
+  temp$BGC <- as.numeric(as.factor(temp$BGC))
+  num <- (temp$New[1])/temp$Num[1]
+  temp <- as.data.table(temp)
+  tempSMOTE <- smotefamily::SMOTE(temp[,!c("BGC","Num","LogNum","New")],
+                             temp$BGC, K = 2, dup_size = ceiling(num))
+  newCases <- temp$New[1] - temp$Num[1]
+  synData <- tempSMOTE$syn_data
+  synData <- synData[sample(1:nrow(synData), size = newCases, replace = F),]
+  synData$class <- NULL
+  synData$BGC <- unit
+  synData
+}
+
+X0_OK[,Num := NULL]
+X0_OK<- X0_OK %>% select(-New,  -LogNum)
+XAll <- rbind(X0_small,X0_OK,X0_big)
+#XAll <- X0  ###unalanced data set
+XAll <- as.data.table(XAll)
+
+XAll[,BGC := as.factor(BGC)]
+XAll$BGC  <- droplevels(XAll$BGC)
+
+```
+
+The new rebalanced training set is 310 668 points. This training set is submitted to ranger to generate a final climate model of BGCs for western north america.
+
+```{r mahalanobis distance}
+set.seed(234589)
+cores <- parallel::detectCores()
+cores
+
+#temp <- X0[,!"ID1"]
+#temp <- temp[,!c("DD5_wt","PAS_sm")]
+#temp <- temp[,lapply(.SD,function(x){range(x)[2] - range(x)[1]}),by = BGC]
+# zeroVar <- temp[CMD == 0,as.character(BGC)]
+# X0[,CMD := as.numeric(CMD)]
+# X0[as.character(BGC) %chin% zeroVar, CMD := jitter(CMD, amount = 0.5)]
+
+BGC_Nums <- X0[,.(Num = .N), by = BGC]
+BGC_train <- X0[!BGC %in% BGC_Nums[Num < 35, BGC],]##remove BGCs with low numbers of points
+
+# This section was to try and remove linear dependance, but with pseudoinverse I don't think we need it
+# BGC_train[BGC_train == 0] <- 0.1
+# temp <- BGC_train[,lapply(.SD,function(x){range(x)[2] - range(x)[1]}),by = BGC, .SDcols = -"ID1"]
+# #BGC_train <- BGC_train[,lapply(.SD,as.numeric), .SDcols = -c("ID1","BGC"), by = .(ID1,BGC)]
+# for(b in colnames(BGC_train)[-(1:2)]){
+#   zeroVar <- temp[get(b) == 0,as.character(BGC)]
+#   BGC_train[BGC %in% zeroVar, (b) := jitter(get(b), amount = 3)]
+# }
+
+##proximity of centroids to each other
+library(StatMatch)
+library(corpcor)
+BGC_Centroids <- BGC_train[,lapply(.SD,mean,na.rm = T),by = BGC, .SDcols = -c("ID1")]
+BGC_Centroids[BGC_Centroids == 0] <- 0.1
+cent_dist <- mahalanobis.dist(BGC_Centroids[,!"BGC"])
+rownames(cent_dist) <- BGC_Centroids$BGC
+colnames(cent_dist) <- BGC_Centroids$BGC
+hist(cent_dist)
+#cent_dist[lower.tri(cent_dist, diag = T)] <- NA
+cent_dt <- as.data.table(cent_dist)
+cent_dt[,Unit1 := rownames(cent_dist)]
+cent_dt <- melt(cent_dt, id.vars = "Unit1")
+cent_dt <- cent_dt[!is.na(value),]
+#cent_dt <- cent_dt[value < 0.5,]
+setnames(cent_dt, c("Unit1","Unit2","MahDist"))
+fwrite(cent_dt, "CentroidDistAllUnits_12var.csv")
+
+
+##simple mahalanobis distance for mean and var
+BGC_train[,mahDist := mahalanobis(.SD, center = colMeans(.SD), cov = pseudoinverse(cov(.SD)), inverted = T), 
+          .SDcols = -c("ID1"), by = BGC]
+Mah_Summ <- BGC_train[,.(Mean = mean(mahDist), Var = sd(mahDist), Quant = quantile(mahDist,0.9)), by = BGC]
+Mah_Summ[BGC_Nums, NumPoints := i.Num, on = "BGC"]
+fwrite(Mah_Summ,"MD_Var12.csv")
+#BGC_train <- BGC_train[mahDist < 5,]
+
+##MD for each points compared to each centroid to determine which points are closer to a different centroid
+##Note this takes a while for the 2km dataset
+BGCs <- unique(as.character(BGC_train$BGC))
+data.table::setkey(BGC_train,BGC)
+distAll <- BGC_train[,.(ID1,BGC)]
+pb <- txtProgressBar(min = 0, max = length(BGCs),initial = 0)
+i = 0
+for(b in BGCs){
+  i = i+1
+  setTxtProgressBar(pb,i)
+  curr <- BGC_train[BGC == b,!c("ID1","BGC")]
+  centroid <- colMeans(curr)
+  covInv <- pseudoinverse(cov(curr))
+  distAll[,(b) := mahalanobis(BGC_train[,!c("ID1","BGC")],
+                              center = centroid,cov = covInv,inverted = T)]
+}
+
+##summarise
+mahAll <- melt(distAll, id.vars = c("ID1","BGC"))
+setnames(mahAll, old = c("variable","value"), new = c("Centroid","MD"))
+setkey(mahAll,ID1)
+minDist <- mahAll[order(MD),.SD[1L],by = ID1]
+minDist[,Same := BGC == Centroid]
+table(minDist$Same)
+fwrite(minDist,"ClosestCentroid35Var.csv")
+
+##join with training data
+BGC_train[minDist, Include := i.Same, on = "ID1"]
+fwrite(BGC_train,"FlaggedTrainingSet.csv")
+
+##create geopackage
+library(sf)
+pnts <- IDVars[minDist, on = "ID1"]
+pnts <- st_as_sf(pnts, coords = c("Latitude","Longitude"), crs = 4326)
+pnts <- st_transform(pnts, 3005)
+st_write(pnts, dsn = "TrainingPoints_MD35Var.gpkg")
+#minDist <- mahAll[, .SD[which.min(MD)], by = ID1]
+
+# BGCs <- unique(as.character(BGC_train$BGC))
+# mahDist <- foreach(b = BGCs, combine = rbind) %do% {
+#   cat(b," ")
+#   temp <- BGC_train[BGC == b,!c("ID1","BGC")]
+#   centroid <- colMeans(temp)
+#   matInv <- pseudoinverse(cov(temp))
+#   mdist <- mahalanobis(temp,center = centroid, cov = matInv, inverted = T)
+# }
+
+
+```
+
+``` {r }
 X0temp <- as.data.table(X0[Num > 500,])
 X0temp$BGC <- as.factor(X0temp$BGC)
 cl <- makeCluster(detectCores()-2)
@@ -373,15 +564,39 @@ X0_OK[,Num := NULL]
 XAll <- rbind(X0_small,X0_OK,X0_big)
 #XAll <- X0  ###unalanced data set
 XAll <- as.data.table(XAll)
+=======
+```{r setup tidymodel}
 
-XAll[,BGC := as.factor(BGC)]
-XAll$BGC  <- droplevels(XAll$BGC)
+BGC_recipe <- recipe(BGC ~ .,  data = BGC_train) %>%
+    step_center(all_predictors()) %>%
+  step_scale(all_predictors())
+
+BGC_model <- rand_forest(trees = 101, min_n = 10) %>%# specify that the model is a random forest
+  #set_args(mtry = tune()) %>% specify that the `mtry` parameter needs to be tuned
+  set_engine("randomForest", num.threads = (cores-2)) %>%  #, importance = "impurity, ) %>% select the engine/package that underlies the model
+   set_mode("classification")
+
+ # set the workflow
+BGC_workflow <- workflow() %>%
+  add_recipe(BGC_recipe) %>%
+  add_model(BGC_model)
+#
+## build model for prediction
+BGCmodel.tidy <- BGC_workflow %>% fit(BGC_train)
+gc()
+
+BGCmodel.var <- pull_workflow_fit(BGCmodel.tidy)$fit
+
+###Variable importance
+varimp <- as.data.frame(BGCmodel.var$importance)
+covcount <- count(varimp)
+BGCmodel <- BGCmodel.tidy
+save(BGCmodel.tidy,file= paste0("./BGC_models/WNAv12_Zone_", covcount, "_Var_tidyrf1.Rdata"))
 
 ```
 
-The new rebalanced training set is 310 668 points. This training set is submitted to ranger to generate a final climate model of BGCs for western north america.
-
 ```{r build final ranger model with larger training point size, cache = TRUE, echo=FALSE}
+
 #X0[,BGC := as.factor(BGC)]
 #XAll2 <- X0# %>% select(-MCMT, -Tmin_wt)
 BGCmodel2 <- ranger(BGC ~ ., data = XAll,
@@ -405,6 +620,31 @@ covcount <- count(DF)
  
 save(BGCmodel2,file= paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_ranger_MDreduced3_DropSomeDistricts_alwayssplit.Rdata"))
 test <- treeInfo(BGCmodel2,1)
+
+#X0[,BGC := as.factor(BGC)]
+# XAll2 <- X0# %>% select(-MCMT, -Tmin_wt)
+# BGCmodel2 <- ranger(BGC ~ ., data = XAll,
+#                            num.trees = 101,  seed = 12345,
+#                             splitrule =  "extratrees", #""gini",
+#                             always.split.variables = c("DD5_sp","CMD.total", "MSP"), #,
+#                             #mtry = 8,
+#                           #max.depth = .5,
+#                     #min.node.size = 2,
+#                            importance = "impurity", write.forest = TRUE, classification = TRUE)
+# 
+# DF <- as.data.frame(BGCmodel2$variable.importance) %>% tibble::rownames_to_column() %>% rename(w = 1, v = 2)
+# covcount <- count(DF)
+#  ggplot(DF, aes(x=reorder(w,v), y=v,fill=v))+ 
+#   geom_bar(stat="identity", position="dodge")+ coord_flip() +
+#    ylab("Variable Importance")+
+#    xlab("")+
+#    ggtitle("Information Value Summary")+
+#    guides(fill=F)+
+#    scale_fill_gradient(low="red", high="blue")
+#  
+# save(BGCmodel2,file= paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_ranger_reduced4.Rdata"))
+# test <- treeInfo(BGCmodel2,1)
+
 # test
 # #
 #=#strata=BGC, sampsize= c(500),do.trace = 10, 
@@ -413,45 +653,15 @@ test <- treeInfo(BGCmodel2,1)
  #                         ntree=101, na.action=na.omit, importance=TRUE, proximity=FALSE)
  # 
 
-## tidymodel version 
+## tidymodel version
 
-# set.seed(234589)
-# cores <- parallel::detectCores()
-# cores
-# BGC_train <- XAll
-# 
-# BGC_recipe <- recipe(BGC ~ .,  data = BGC_train) %>%
-#     step_center(all_predictors()) %>%
-#   step_scale(all_predictors())
-# 
-# BGC_model <- rand_forest(trees = 101, min_n = 10) %>%# specify that the model is a random forest
-#   #set_args(mtry = tune()) %>% specify that the `mtry` parameter needs to be tuned
-#   set_engine("randomForest", num.threads = (cores-2)) %>%  #, importance = "impurity, ) %>% select the engine/package that underlies the model
-#    set_mode("classification")
-# 
-#  # set the workflow
-# BGC_workflow <- workflow() %>%
-#   add_recipe(BGC_recipe) %>%
-#   add_model(BGC_model)
-# 
-# ## build model for prediction
-# BGCmodel.tidy <- BGC_workflow %>% fit(BGC_train)
-# gc()
-# 
-# BGCmodel.var <- pull_workflow_fit(BGCmodel.tidy)$fit
-# 
-# ###Variable importance
-# varimp <- as.data.frame(BGCmodel.var$importance)
-# covcount <- count(varimp)
-# BGCmodel <- BGCmodel.tidy
-# save(BGCmodel.tidy,file= paste0("./BGC_models/WNAv12_Zone_", covcount, "_Var_tidyrf1.Rdata"))
-# 
-# DF <- varimp %>% tibble::rownames_to_column() %>% rename(w = 1, v = 2)
-# 
-# BGCmodel
-# v <-as.data.frame(BGCmodel.var$importance)
-# 
-# #DF <- v %>% tibble::rownames_to_column() %>% rename(w = rowname, v = 'BGCmodel.var$importance')
+
+DF <- varimp %>% tibble::rownames_to_column() %>% rename(w = 1, v = 2)
+
+BGCmodel
+v <-as.data.frame(BGCmodel.var$importance)
+
+#DF <- v %>% tibble::rownames_to_column() %>% rename(w = rowname, v = 'BGCmodel.var$importance')
 # 
 #  ggplot(DF, aes(x=reorder(w,v), y=v,fill=v))+
 #   geom_bar(stat="identity", position="dodge")+ coord_flip() +
@@ -604,6 +814,53 @@ test <- treeInfo(BGCmodel2,1)
 # wna_cb <- wna_cb %>% dplyr::select(-ID2) %>% rename(ID2 = 5)
 # 
 # Old code
+```
+
+###old code
+
+```{r old code}
+# addInteractVars <- function(dat){
+#     BGC_recipe <- recipe(BGC ~ .,  data = dat) ###cold BGCs (SBS, ESSF)
+# interact_2 <- BGC_recipe %>%
+#   step_interact(terms = ~ Tmin_wt:DD5_sp)
+# interact_2 <- prep(interact_2, training = dat)
+# dat <- bake(interact_2,dat)
+# 
+# BGC_recipe <- recipe(BGC ~ .,  data = dat) ###dry warm (IDF, PP, BG)
+# interact_3 <- BGC_recipe %>%
+#   step_interact(terms = ~ CMD.total:DD5_sp)
+# interact_3 <- prep(interact_3, training = dat)
+# dat <- bake(interact_3,dat)
+# 
+# BGC_recipe <- recipe(BGC ~ .,  data = dat) ### low drought from cold vs low drought from precip
+# interact_4 <- BGC_recipe %>%
+#   step_interact(terms = ~ CMD.total:MSP)
+# interact_4 <- prep(interact_4, training = dat)
+# dat <- bake(interact_4,dat)
+# 
+# BGC_recipe <- recipe(BGC ~ .,  data = dat) ## 
+# interact_5 <- BGC_recipe %>%
+#   step_interact(terms = ~ CMD.total:MSP:DD5_sp)
+# interact_5 <- prep(interact_5, training = dat)
+# dat <- bake(interact_5,dat)
+# 
+# BGC_recipe <- recipe(BGC ~ .,  data = dat)
+# interact_1 <- BGC_recipe %>%
+#   step_interact(terms = ~ CMD.total:MSP:DD5_sp:Tmin_wt)
+# interact_1 <- prep(interact_1, training = dat)
+# dat <- bake(interact_1,dat)
+# 
+# BGC_recipe <- recipe(BGC ~ .,  data = dat) ##Coast vs interior Continentaliy plus growing 
+# interact_6 <- BGC_recipe %>%
+#   step_interact(terms = ~ CCI:DD5_sp)
+# interact_6 <- prep(interact_6, training = dat)
+# dat <- bake(interact_6,dat)
+#   #   
+#   #   (dat$PAS10 + dat$PAS11  + dat$PAS12 + dat$PAS01 + dat$PAS02 + dat$PAS03 + dat$PAS04 ) - ((dat$DD5_11 + dat$DD5_wt  + dat$DD5_03) * 50)
+#   # dat$Snow <- ifelse (dat$Snow <0, 0, dat$Snow)
+#  return(dat)
+#}
+
 ```
 
 
