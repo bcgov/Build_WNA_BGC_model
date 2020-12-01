@@ -60,20 +60,18 @@ addVars <- function(dat){
   dat$DDgood <- dat$DD5 - dat$DD18
   dat$DDnew <- (dat$DD5_05 + dat$DD5_06 +dat$DD5_07  + dat$DD5_08)  - (dat$DD18_05 + dat$DD18_06 +dat$DD18_07 +dat$DD18_08)
   dat$TmaxJuly <- dat$Tmax07
-  dat$Boreal <- ifelse(dat$EMT <=-40, 1, 0)
+    dat$Boreal <- ifelse(dat$EMT <=-40, 1, 0)
   # dat$Snow_wt <- ifelse(dat$Tave_wt >0, 0, dat$PAS_wt)
   # dat$Snow_at <- ifelse(dat$Tave_at >0, 0, dat$PAS_at)
   # dat$Snow_sp <- ifelse(dat$Tave_sp >0, 0, dat$PAS_sp)
   # dat$Snow <- dat$Snow_wt + dat$Snow_at + dat$Snow_sp
   #dat$CCI <- (1.7*(dat$MWMT - dat$MCMT) / sin(dat$Latitude +10))-14
    dat$CCI <- (1.7* (dat$MWMT - dat$MCMT/sin(dat$Latitude +10)))-14
-  
-  dat$KOI <- (100*(dat$Tave10 - dat$Tave04))/ (dat$MWMT - dat$MCMT)
-  #   
-  #   (dat$PAS10 + dat$PAS11  + dat$PAS12 + dat$PAS01 + dat$PAS02 + dat$PAS03 + dat$PAS04 ) - ((dat$DD5_11 + dat$DD5_wt  + dat$DD5_03) * 50)
-  # dat$Snow <- ifelse (dat$Snow <0, 0, dat$Snow)
+    dat$KOI <- (100*(dat$Tave10 - dat$Tave04))/ (dat$MWMT - dat$MCMT)
+
   return(dat)
 }
+
 ```
 
 Points from a 8km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
@@ -91,10 +89,10 @@ Y3 <- fread(paste0("./inputs/", region, "_400m_HexPts_Decade_2011_2019MSY.csv"),
 Y <-  rbind (Y1,Y2,Y3)
 Y <- addVars(Y)
 
-# Z <- fread(paste0("./inputs/", region,"_400m_HexPts_6 GCMsMSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in historic period
-# models <- as.data.frame(unique(Z$Year))
-# model <-  c("15GCM-Ensemble_rcp45_2025.gcm")
-# Z1 <- addVars(Z) %>% filter(Year %in% model) %>% select(-Year)
+Z <- fread(paste0("./inputs/", region,"_400m_HexPts_6 GCMsMSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in historic period
+models <- as.data.frame(unique(Z$Year))
+model <-  c("15GCM-Ensemble_rcp45_2055.gcm")
+Z1 <- addVars(Z) %>% filter(Year %in% model) %>% select(-Year)
 
 
 ## load tidy model
@@ -104,13 +102,14 @@ Y <- addVars(Y)
 # model_vars <- as.data.frame(model_vars) %>% tibble::rownames_to_column()
 
 ## load ranger model
-load("./BGC_models/WNAv12_Subzone_24_Var_ranger_MDreduced3_DropSomeDistricts_alwayssplit.Rdata")
+load("./BGC_models/WNAv12_Subzone_24_Var_ranger_MuchReduced2.Rdata")
 model_vars <- as.data.frame(BGCmodel2$variable.importance) %>% tibble::rownames_to_column()
 BGCmodel <- BGCmodel2
 
-covcount <- count(model_vars)
+covcount <- nrow(model_vars)
 X2 <- X1 %>% dplyr::select(ID1, model_vars [,1])# %>% drop_na(BGC)
 timeperiod = "1961-1990"
+
 Y <- Y %>% dplyr::select(ID1, model_vars [,1])
 Y1 <- data.table(Y)
 Y2 <- Y1[,lapply(.SD,mean),
@@ -119,8 +118,8 @@ Y2 <- Y1[,lapply(.SD,mean),
 X2 <- Y2 ## use this line if wanting to run the modern climate change period
 timeperiod = "1991-2019"
 # 
-# X2 <- Z1 %>% dplyr::select(ID1, model_vars [,1])# %>% drop_na(BGC)
-# timeperiod = "2025"
+X2 <- Z1 %>% dplyr::select(ID1, model_vars [,1])# %>% drop_na(BGC)
+timeperiod = "2055"
 #-----------------------
 
 #X1$BGC <- as.factor(X1$BGC)
@@ -140,7 +139,7 @@ timeperiod = "1991-2019"
 ###Predict for ranger model
 
  grid.pred <- predict(BGCmodel, data = X2[,-c(1)])
- BGC <- as.data.frame(grid.pred$predictions)%>% tibble::rownames_to_column() %>% rename("BGC" = "grid.pred$predictions")
+ BGC <- as.data.frame(grid.pred$predictions)%>% tibble::rownames_to_column() %>% dplyr::rename("BGC" = "grid.pred$predictions")
 X1.pred <- cbind(X2, BGC) %>% select(ID1, BGC)
 X1.pred$BGC <-  fct_explicit_na(X1.pred$BGC , na_level = "(None)")
 X1.pred$ID1 <- as.character(X1.pred$ID1)
@@ -168,7 +167,7 @@ temp3 <-  st_as_sf(temp3)#
 st_precision(temp3) <- .5
 temp3$BGC <- forcats::fct_explicit_na(temp3$BGC,na_level = "(None)")
 temp3 <- temp3[,c("BGC","geom")]
-t2 <- aggregate(temp3[,-1], by = list(temp3$BGC), do_union = T, FUN = mean) %>% rename(BGC = Group.1)
+t2 <- aggregate(temp3[,-1], by = list(temp3$BGC), do_union = T, FUN = mean) %>% dplyr::rename(BGC = Group.1)
 t2 <- st_zm(t2, drop=T, what='ZM') %>% st_transform(3005) %>% st_cast()
 
 t2 <- t2 %>% st_buffer(0)
@@ -177,7 +176,7 @@ BGC_area <- t2 %>%
   mutate(Area = st_area(.)) %>% mutate (Area = Area/1000000) %>%
   mutate(ID = seq_along(BGC)) %>% dplyr::select(BGC, Area) %>% st_set_geometry(NULL)
 write.csv(BGC_area, paste0("./outputs/", region, "_", timeperiod, "_", covcount, "_BGC_area_predicted_MDreduced.csv"))
-st_write(t2, dsn = paste0("./outputs/", covcount, "_", "Subzone_Map_hex400_dissolved.gpkg"), layer = paste0(region, "_", timeperiod, "_", region , "_vars_ranger_MD_District5"), driver = "GPKG", delete_layer = TRUE)
+st_write(t2, dsn = paste0("./outputs/", covcount, "_", "Subzone_Map_hex400_dissolved.gpkg"), layer = paste0(region, "_", timeperiod, "_", region , "_vars_ranger_muchreduced"), driver = "GPKG", delete_layer = TRUE)
                                                                                                        
 
 ```
