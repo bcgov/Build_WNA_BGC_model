@@ -1,0 +1,132 @@
+---
+title: "BGC_Stats"
+author: "Will MacKenzie"
+date: "02/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+require (smotefamily)
+require(data.table)
+library(ggplot2)
+library(raster)
+library(RStoolbox)
+library(maptools)
+library(sp)
+library(spatstat)
+require(scales)
+require(sf)
+require (gstat)
+require(ranger)
+library(tidyverse)
+require(tidymodels)
+require(stringr)
+require(corpcor)
+require(StatMatch)
+require(rgdal)
+require(rgeos)
+addVars <- function(dat) {
+  dat$PPT_MJ <- dat$PPT05 + dat$PPT06  # MaY/June precip
+  dat$PPT_JAS <-
+    dat$PPT07 + dat$PPT08 + dat$PPT09  # July/Aug/Sept precip
+  dat$PPT.dormant <-
+    dat$PPT_at + dat$PPT_wt  # for calculating spring deficit
+  dat$CMD.def <-
+    500 - (dat$PPT.dormant)  # start of growing season deficit original value was 400 but 500 seems better
+  dat$CMD.def[dat$CMD.def < 0] <-
+    0  #negative values set to zero = no deficit
+  dat$CMDMax <- dat$CMD07
+  dat$CMD.total <- dat$CMD.def + dat$CMD
+  dat$CMD.grow <-
+    dat$CMD05 + dat$CMD06 + dat$CMD07 + dat$CMD08 + dat$CMD09
+  dat$DD5.grow <-
+    dat$DD5_05 + dat$DD5_06 + dat$DD5_07 + dat$DD5_08 + dat$DD5_09
+  dat$CMDMax <- dat$CMD07 # add in so not removed below
+  dat$DDgood <- dat$DD5 - dat$DD18
+  dat$DDnew <-
+    (dat$DD5_05 + dat$DD5_06 + dat$DD5_07  + dat$DD5_08)  - (dat$DD18_05 + dat$DD18_06 +
+                                                               dat$DD18_07 + dat$DD18_08)
+  dat$TmaxJuly <- dat$Tmax07
+  dat$Boreal <- ifelse(dat$EMT <= -40, 1, 0)
+  dat$CCI <- (1.7 * (dat$MWMT - dat$MCMT / sin(dat$Latitude + 10))) - 14
+  dat$KOI <-
+    (100 * (dat$Tave10 - dat$Tave04)) / (dat$MWMT - dat$MCMT)
+  
+  return(dat)
+}
+
+
+```
+
+## Stats to generate
+Elevation
+Area
+Climate comes from climate summary script
+Mahanalobis space
+
+```{r import training data}
+X0 <- fread("./inputs/WNAv12_2000m_Pts_Normal_1961_1990MSY.csv")
+X0 <-
+  X0 %>% select(-ID1) %>% dplyr::rename(ID1 = V1) %>% dplyr::rename(BGC = ID2) %>% filter(!Latitude > 60)#tibble::rownames_to_column("ID1") #
+
+```
+
+```{r build climate summary table}
+##select variables
+vars_std <- c("MAT", "MAP", "MSP", "DD5")
+
+##generate summaries
+
+##format into table for export
+
+```
+
+```{r elevation statistics, echo=FALSE}
+BGC_elev <- X0 %>% select (BGC, Elevation) %>% group_by(BGC) %>%
+  summarize(
+    mean = mean(Elevation, na.rm = TRUE),
+    sd = sd(Elevation, na.rm = TRUE),
+    median = median(Elevation, na.rm = TRUE),
+    min = min(Elevation, na.rm = TRUE),
+    max = max(Elevation, na.rm = TRUE),
+    IQR = IQR(Elevation, na.rm = TRUE)
+  )
+fwrite(BGC_elev, "./outputs/BGC_Elevation_Stats.csv")
+```
+
+```{r mahalanobis space}
+
+BGC_mahal <-
+  X0 %>% select (BGC, MAT, MSP, CMD, DD5)  %>% na_if(-9999) %>% drop_na() %>%
+  mutate_if(is.integer, as.numeric) %>% mutate_if(is.character, as.factor) %>%  as.data.table()
+Climatic_variability <-
+  BGC_mahal[, .(sd = sd(mahalanobis(
+    .SD,  colMeans(.SD), cov = pseudoinverse(cov(.SD)), inverted = T
+  ))), by = BGC]
+
+```
+
+```{r calculated area of BGCs}
+BGC_map <-
+  readOGR("D:/CommonTables/BGC_maps/WNA_BGC_v12_12Oct2020.gpkg")
+crs(BGC_map)
+BGC_map$area = gArea(BGC_map, byid = T)
+BGC_area <- as.data.frame(BGC_map@data)
+BGC_area2 <- BGC_area %>% mutate(area = round(area / 1000000))
+fwrite(BGC_area2, "./outputs/BGC_area.csv")
+#BGC_map <- st_read("D:/CommonTables/BGC_maps/BC_BGCv11.gpkg")
+
+
+```
+
+```{r plot climate var vs area}
+BGC_var <- left_join(BGC_area2, Climatic_variability, by = "BGC")
+
+ggplot(BGC_var, aes(area, sd, label = BGC))+
+         geom_point()+
+  geom_text(aes(label=BGC),hjust=0, vjust=0)
+  
+
+```
+
