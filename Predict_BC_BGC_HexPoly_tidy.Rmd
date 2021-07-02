@@ -46,69 +46,46 @@ require(tidymodels)
 #data.dir = "./inputs/"
 #dir.create("cLHS")
 
-addVars <- function(dat){
-  dat$PPT_MJ <- dat$PPT05 + dat$PPT06  # MaY/June precip
-  dat$PPT_JAS <- dat$PPT07 + dat$PPT08 + dat$PPT09  # July/Aug/Sept precip
-  dat$PPT.dormant <- dat$PPT_at + dat$PPT_wt  # for calculating spring deficit
-  dat$CMD.def <- 500 - (dat$PPT.dormant)  # start of growing season deficit original value was 400 but 500 seems better
-  dat$CMD.def[dat$CMD.def < 0] <- 0  #negative values set to zero = no deficit
-  dat$CMDMax <- dat$CMD07
-  dat$CMD.total <- dat$CMD.def + dat$CMD
-  dat$CMD.grow <- dat$CMD05 + dat$CMD06 +dat$CMD07 +dat$CMD08 +dat$CMD09
-  dat$DD5.grow <- dat$DD5_05 + dat$DD5_06 + dat$DD5_07 + dat$DD5_08 + dat$DD5_09
-  dat$CMDMax <- dat$CMD07 # add in so not removed below
-  dat$DDgood <- dat$DD5 - dat$DD18
-  dat$DDnew <- (dat$DD5_05 + dat$DD5_06 +dat$DD5_07  + dat$DD5_08)  - (dat$DD18_05 + dat$DD18_06 +dat$DD18_07 +dat$DD18_08)
-  dat$TmaxJuly <- dat$Tmax07
-    dat$Boreal <- ifelse(dat$EMT <=-40, 1, 0)
-  # dat$Snow_wt <- ifelse(dat$Tave_wt >0, 0, dat$PAS_wt)
-  # dat$Snow_at <- ifelse(dat$Tave_at >0, 0, dat$PAS_at)
-  # dat$Snow_sp <- ifelse(dat$Tave_sp >0, 0, dat$PAS_sp)
-  # dat$Snow <- dat$Snow_wt + dat$Snow_at + dat$Snow_sp
-  #dat$CCI <- (1.7*(dat$MWMT - dat$MCMT) / sin(dat$Latitude +10))-14
-   dat$CCI <- (1.7* (dat$MWMT - dat$MCMT/sin(dat$Latitude +10)))-14
-    dat$KOI <- (100*(dat$Tave10 - dat$Tave04))/ (dat$MWMT - dat$MCMT)
-
-  return(dat)
-}
+source("../Build_USA_BEC/_functions/AddVars.R")
 
 ```
 
 Points from a 8km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
 
 ```{r read in Hex Grid Climate Data}
-region <- "DND"
+region <- "RTO"
 # bring in grid data with climate attributes
-X <- fread(paste0("./inputs/", region,"_400m_HexPts_Normal_1961_1990MSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in historic period
-X1 <- addVars(X)
+#  X <- fread(paste0("./inputs/", region,"_400m_HexPts_Normal_1961_1990MSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in historic period
+# hexpts <- X %>% select(ID1, ID2, Latitude, Longitude, Elevation)
+# #fwrite(hexpts,paste0("./inputs/", region, "_400m_HexPts.csv"))
+# X1 <- addVars(X)
 
-###combine and average decadal data for the current normal period
-Y1 <- fread(paste0("./inputs/", region, "_400m_HexPts_Decade_1991_2000MSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in future ensemble period
-Y2 <- fread(paste0("./inputs/", region, "_400m_HexPts_Decade_2001_2010MSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in future ensemble period
-Y3 <- fread(paste0("./inputs/", region, "_400m_HexPts_Decade_2011_2019MSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in future ensemble period
-Y <-  rbind (Y1,Y2,Y3)
+###read in the current normal period 1991-2020
+Y <- fread(paste0("./inputs/", region, "_400m_HexPts_Normal_1991_2020MSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)
 Y <- addVars(Y)
 
-Z <- fread(paste0("./inputs/", region,"_400m_HexPts_6 GCMsMSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in historic period
-models <- as.data.frame(unique(Z$Year))
-model <-  c("15GCM-Ensemble_rcp45_2055.gcm")
-Z1 <- addVars(Z) %>% filter(Year %in% model) %>% select(-Year)
+#read in future ensemble period
+ Z <- fread(paste0("./inputs/", region,"_400m_HexPts_5 GCMsMSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in historic period
+ models <- as.data.frame(unique(Z$Year))
+ model <-  c("13GCMs_ensemble_ssp245_2061-2080.gcm")
+ Z1 <-  Z %>% filter(Year %in% model) %>% select(-Year)
+ Z1 <-addVars(Z1)
 
+### load  tidy model
+ #load("./BGC_models/WNAv12_Zone_13_Var_tidy_30June21.RData")
+ #  load("./BGC_models/WNAv12_Subzone_13_Var_tidy_30June21.RData")
+ # BGCmodel.tidy <- BGC_rfzone
+ # model_vars <- as.data.frame(BGCmodel.tidy$fit$fit$fit$variable.importance) %>% tibble::rownames_to_column()
 
-## load tidy model
-# load("./BGC_models/WNAv12_Subzone_35_Var_ranger2.Rdata")
-# BGCmodel.var <- pull_workflow_fit(BGCmodel)$fit
-# model_vars <- BGCmodel.var$importance
-# model_vars <- as.data.frame(model_vars) %>% tibble::rownames_to_column()
+### load ranger  model
 
-## load ranger model
-load("./BGC_models/WNAv12_Subzone_24_Var_ranger_MuchReduced2.Rdata")
-model_vars <- as.data.frame(BGCmodel2$variable.importance) %>% tibble::rownames_to_column()
+load("./BGC_models/WNAv12_Subzone_13_Var_ranger_30June21.RData")
 BGCmodel <- BGCmodel2
+model_vars <- as.data.frame(BGCmodel$variable.importance) %>% tibble::rownames_to_column()
 
-covcount <- nrow(model_vars)
-X2 <- X1 %>% dplyr::select(ID1, model_vars [,1])# %>% drop_na(BGC)
-timeperiod = "1961-1990"
+ covcount <- nrow(model_vars)
+# X2 <- X %>% dplyr::select(ID1, model_vars [,1])# %>% drop_na(BGC)
+# timeperiod = "1961-1990"
 
 Y <- Y %>% dplyr::select(ID1, model_vars [,1])
 Y1 <- data.table(Y)
@@ -117,10 +94,13 @@ Y2 <- Y1[,lapply(.SD,mean),
 #--------unremark for 1991-2019 period
 X2 <- Y2 ## use this line if wanting to run the modern climate change period
 timeperiod = "1991-2019"
-# 
+
+# XX <- X %>% dplyr::select(ID1, ID2)
+# Ycheck <- left_join(XX, Y1) %>% dplyr::select(ID1, ID2, everything())
+# # 
 X2 <- Z1 %>% dplyr::select(ID1, model_vars [,1])# %>% drop_na(BGC)
-timeperiod = "2055"
-#-----------------------
+timeperiod = "2070"
+-----------------------
 
 #X1$BGC <- as.factor(X1$BGC)
 #write.csv(model_vars, "./outputs/16Var_gini_WNABGCv11.csv", row.names = FALSE)
@@ -132,9 +112,23 @@ timeperiod = "2055"
 ####Predict BGC membership of hex grid
 
 ``` {r predict BGC of hex points }
+# BGC_recipe <- recipe(BGC ~ .,  data = XAll) %>%
+#   update_role(ID1, new_role = "ID") %>% 
+#   step_center(all_predictors()) %>%
+#   step_scale(all_predictors()) %>%  prep(training = XAll, retain = TRUE)
+# 
+# X2.juice <- bake(BGC_recipe, X2)
+
+
+
 ###Predict for tidy model
-# grid.pred <- predict(BGCmodel, new_data = X2[,-c(1)])
-# BGC <- as.data.frame(grid.pred$.pred_class) %>% rename("BGC" = "grid.pred$.pred_class")
+# X2.id <- as.data.frame(X2$ID1)
+# 
+# grid.pred <- predict(BGCmodel.tidy, new_data = X2)
+# grid.pred <- cbind(X2.id, grid.pred $.pred_class)
+# X1.pred <- as.data.frame(grid.pred) %>% dplyr::rename(ID1 = 1, BGC = 2)
+#  X1.pred$BGC <-  fct_explicit_na(X1.pred$BGC , na_level = "(None)")
+#  X1.pred$ID1 <- as.character(X1.pred$ID1)
 
 ###Predict for ranger model
 
@@ -170,13 +164,13 @@ temp3 <- temp3[,c("BGC","geom")]
 t2 <- aggregate(temp3[,-1], by = list(temp3$BGC), do_union = T, FUN = mean) %>% dplyr::rename(BGC = Group.1)
 t2 <- st_zm(t2, drop=T, what='ZM') %>% st_transform(3005) %>% st_cast()
 
-t2 <- t2 %>% st_buffer(0)
+t2 <- t2 %>% st_buffer(0) ## randomly fixes geometry problems
 #mapView(t2)
 BGC_area <- t2 %>%
   mutate(Area = st_area(.)) %>% mutate (Area = Area/1000000) %>%
   mutate(ID = seq_along(BGC)) %>% dplyr::select(BGC, Area) %>% st_set_geometry(NULL)
-write.csv(BGC_area, paste0("./outputs/", region, "_", timeperiod, "_", covcount, "_BGC_area_predicted_MDreduced.csv"))
-st_write(t2, dsn = paste0("./outputs/", covcount, "_", "Subzone_Map_hex400_dissolved.gpkg"), layer = paste0(region, "_", timeperiod, "_", region , "_vars_ranger_muchreduced"), driver = "GPKG", delete_layer = TRUE)
+#write.csv(BGC_area, paste0("./outputs/", region, "_", timeperiod, "_", covcount, "_BGC_area_predicted_mahbgcreduced.csv"))
+st_write(t2, dsn = paste0("./outputs/", covcount, "_", "Subzone_Map_hex400_dissolved_reduced30June_3.gpkg"), layer = paste0(region, "_", timeperiod, "_", region ,"_", covcount, "_vars_ranger"), driver = "GPKG", delete_layer = TRUE)
                                                                                                        
 
 ```
