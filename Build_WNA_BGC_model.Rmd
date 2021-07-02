@@ -1,0 +1,1667 @@
+---
+title: "Random Forest Model of Biogeoclimatic Units for Western North America"
+author: "William H MacKenzie & Kiri Daust"
+date: "22/03/2020"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+require (smotefamily)
+require(data.table)
+library(randtoolbox)
+library(clhs)
+library(foreign)
+library(ggplot2)
+library(raster)
+library(RStoolbox)
+library(maptools)
+library(sp)
+library(spatstat)
+require(doParallel)
+require(scales)
+require(sf)
+require(caret)
+require (gstat)
+require(ranger)
+require(rticles)
+#require(expss)
+require(tictoc)
+require(randomForest)
+library(tidyverse)
+require(tidymodels)
+require(vip)
+require(stringr)
+require(corpcor)
+library(yaml)
+require(tidypredict)
+require(skimr)
+require(DescTools)
+#require (gstat)
+#install.packages("DescTools", dependencies = TRUE)
+#data.dir = "./inputs/"
+#dir.create("cLHS")
+
+#tidymodels_prefer()
+#install.packages ("spThin")
+#conflicted::conflict_prefer(name = "spec", winner = "yardstick")
+#conflict_prefer("rescale", "scales")
+
+source("../Build_USA_BEC/_functions/AddVars.R")
+source("../Build_USA_BEC/_functions/removeOutlier.R")
+source("../Build_USA_BEC/_functions/acc_metrix.R")
+cloud_dir <- "F:/OneDrive - Government of BC/CCISSv12/"
+
+```
+# General process
+Build a grid of points for WNA and attribute with data from ClimateBC for BC and ClimateNA for rest. A 2km grid seems to provide enough training points for most BGCs. Large non-vegetation land areas are excluded (lakes and glaciers primarily)
+There are areas where BGC mapping represents local effects represented by small polygons and these are removed (2km2) or are coast transition areas that are poorly mapped and climte modelled (inland polygons of CWH)
+We tested various variable sets - more work could be done here. First only include variables where an ecologically important control could be defined. Variables are removed that are highly correlated in both space and time. Preliminary runs in the modern climate change period (1991-2019) were assessed. Some additional variables that  were removed at this point as the priority effect could not be controlled. Specifically winter temperatures, which strongly differentiate between BGCs in historic models also rise most markedly through time. As there is no way to prioritize growing season variables, the increase in winter temperatures in the modern period then predict vast changes in the SBS which seem unwarranted. Threshold controls of winter temperatures might be more relevant.
+Univariate outliers (IQR *1.5) within each BGC are flagged and  training points with any outliers are removed.
+All variables are centered and scaled to harmonize the data dispersion which can effect selection in the model.
+To 
+
+
+Points from a 4km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
+
+```{r load and prep training data}
+#X0 <- fread("./inputs/training_data/WNAv12_2km_Hex_Pts_Normal_1961_1990MSY_3.csv")
+X0 <- fread("D:/CommonTables/HexGrids/WNA_4k_HexPts_BGCv12_Normal_1961_1990MSY_reduced.csv") %>% dplyr::filter(!(BGC == "MHmm2" & Latitude > 55)) ##ClimateNA data
+#X0.1 <- fread("D:/CommonTables/HexGrids/BC_4k_HexPts_BGC_NoSampleRemoved_Normal_1961_1990MSY.csv") ##Same set of points by ClimateBC
+
+ # X0.1 <- fread("D:/CommonTables/HexGrids/WNA_4k_HexPts_BGC_NoSampleRemoved.csv") %>% dplyr::rename (BGC = BGC_2) %>%  select(ID1, BGC, Latitude, Longitude,Elevation)
+ # fwrite(X0.1, "D:/CommonTables/HexGrids/WNA_4k_HexPts_BGC_NoSampleRemoved.csv")
+
+# X0update <- left_join(X0, X0.1)# 
+# X0update$match <- X0update$BGC_3 == X0update$BGC 
+# X0update2 <- X0update %>% filter(match == "FALSE")%>% select(ID1, BGC_3, BGC)
+# X0update.1 <- X0update %>% filter(match == "TRUE")
+# X0update.2 <- X0update %>% filter(!match == "TRUE")
+# X0update.2$BGC_3 <- ifelse(X0update.2$BGC_3 != "Null", X0update.2$BGC, X0update.2$BGC_3 )
+# X0 <- rbind(X0update.1, X0update.2) %>% select(-BGC)
+
+##-----This sequence replaces the ClimateNA data with ClimateBC data where possible
+# X0 <-
+#   X0 %>%   filter(!BGC == 'Null') %>% filter(!BGC == "")
+# X0[X0 == -9999] <- NA
+# X0 <- X0[complete.cases(X0),]
+# ###---run this code if wanting to merge a climateNA and climateBC dataset
+# X0.1 <-
+#   X0.1 %>%   filter(!BGC == 'Null') %>% filter(!BGC == "")
+# X0.1[X0.1 == -9999] <- NA
+# X0.1 <- X0.1[complete.cases(X0.1),]
+# 
+# 
+# 
+# X0_merge <- anti_join(X0, X0.1, by="ID1")
+# X0 <- rbind(X0_merge, X0.1)
+# X0 <- fwrite(X0, "D:/CommonTables/HexGrids/WNA_4k_HexPts_BGCv12_Normal_1961_1990MSY_reduced.csv")
+#______________
+```
+
+Create different model variable sets
+v1=all
+v2 = no months
+v3 = Biological Variables
+vs5 = 16var
+vs8 = 35 var
+vs9 = reduced 35 for biologial variable reduction to 19
+vs10+ = testing effects and final set
+
+```{r create variable sets}
+modelvars <- colnames(X0)[-1]
+vs1 <- modelvars
+month <- c("01", "02", "03", "04", "05", "06","07", "08", "09", "10", "11", "12", "Rad", "RH") ##all vars
+vs2 <- modelvars[-grep(paste(month, collapse = "|"),modelvars)]
+badvars <- "TD"
+vs2 <- vs2[!vs2 %in% badvars] ## no monthly vars and others by choice
+vs3 <- c("MAT","MCMT","MWMT","TD","MAP","MSP","AHM","SHM","DD_0","DD5","NFFD","bFFP","eFFP",
+         "PAS","EMT","Eref","CMD","Tave_wt","Tave_sm","PPT_wt","PPT_sm")## biological variables from databasin
+vs5 <- read.csv("./outputs/Model_16Vars.csv") ### from original model
+vs5 <- vs5$x
+vs8 <- c("Tave_at","MWMT", "DD5_at",   "DD5_sm",   "DD5_sp", "DD5_wt", # 35 variable from paper
+            "Eref_sm",   "Eref_sp",
+         "Tmin_wt", "MCMT","Tmin_sp",
+         "PPT_JAS",  "PPT_MJ",  "PPT_sm","MSP","PPT_sp",
+         "CMD_sp","CMD_at", "CMD.def", "CMDMax","CMD","CMD.total","SHM","AHM",
+          "Tmax_sp", "Tmax_sm", 
+          "bFFP",  "eFFP",  "NFFD", 
+          "PAS_wt",  "PAS_at",  "PAS_sp", "PPT_wt","PPT.dormant","PAS_sm")
+
+vs9 <- c( "DD5_sm",   "DD5_sp", "DD5", #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduce list to omit non-biological and redundant variables
+            "Eref_sm",   "Eref_sp", #"TD",
+          "MCMT", #"Tmin_sp",  #Tmin_wt","EMT", 
+         "PPT_JAS",  "PPT_MJ", #  "PPT_sp","PPT_sm","MSP",
+         "CMD_sp","CMDMax","CMD.total", #"CMD","CMD_at",
+         "SHM","AHM",# "CMD.def",
+           "Tmax_sm", "MWMT",#"Tmax_sp",
+          "bFFP",   "NFFD", #"FFP", "NFFD_sp", 
+          "PAS_wt",    "PAS_sp")# "PAS_at",, "PPT_wt","PPT.dormant","PAS_sm")
+
+
+vs10 <- c("MWMT", "DD5_at",   "DD5_sm",   "DD5_sp", "DD5", #"DD5_wt",#"Tave_at", ### some additional playing around
+            "Eref_sm",   "Eref_sp", 
+      #"EMT", #"MCMT",  #"tmin07", # "Tmin_wt", "Tmin_sp",
+         "PPT_sm","MSP","PPT_sp", #"Snow", "PAS", # "PPT_JAS",  "PPT_MJ",  
+         "CMD_sp", "CMDMax","CMD.total","SHM","AHM",#,"CMD_at", "CMD.def""CMD",
+          "Tmax_sp", "Tmax_sm")#, #, "DD18_07", # "tmax07", 
+          #"NFFD_wt")#, "KOI", "CCI") 
+        #"PAS_sp", "PAS_sm", "PAS_wt",  "PAS_at", "PPT_wt", "Tave_wt", "Tave_at", "Tave_sp",
+        #"Latitude", "Longitude", "Elevation") #"bFFP",  "eFFP", 
+
+vs33 <- c("DD5", "DD_delayed",   #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduce list to omit non-biological and redundant variables
+             #"Eref_sp", #"TD",
+          "EMT_threshold", #"MCMT",# EMT",  #"Tmin_sp",  #Tmin_wt",
+           "PPT_MJ", "PPT_JAS", #  "PPT_sp","PPT_sm","MSP",
+         "CMD.total", "CMI", "CMDMax", #"CMD","CMD_at",,"CMDMax"
+         "SHM", "AHM", # "CMD.def",
+              "EXT",#"Tmax_sp","Tmax_sm",
+           "bFFP", #"FFP", "NFFD_sp", 
+          "PAS")
+
+vs34 <- c("DD5", "DD_delayed",   #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduce list to omit non-biological and redundant variables
+             #"Eref_sp", #"TD",
+          "EMT_threshold", #"MCMT",# EMT",  #"Tmin_sp",  #Tmin_wt",
+          "MSP", # PPT_MJ", "PPT_JAS", #  "PPT_sp","PPT_sm","MSP",
+         "CMD.total", "CMI", "CMDMax", #"CMD","CMD_at",,"CMDMax"
+         "SHM", "AHM", # "CMD.def",
+              "EXT",#"Tmax_sp","Tmax_sm",
+           "NFFD", #"FFP", "NFFD_sp", 
+          "PAS")
+
+
+```
+
+
+```{r feature engineering}
+##winter min temperature thresholds
+# X0 <- X0 %>%  mutate(EMT_threshold = ifelse(EMT <=-40, 1,
+#                                                ifelse(EMT > -40 & EMT <= -15, 2,
+#                                                        ifelse(EMT > -15  & Tmax_sm <= 0, 3,4))))
+# #                                                            ifelse(Tmax_sm >36, 4, 5))))))
+
+##extreme summer temperatures
+# X0a <- X0 %>%  mutate(DD_delayed = (((DD_0_01+ DD_0_02 + DD_0_03 +DD_0_11 + DD_0_12 )*0.0238) - 1.8386)) %>% mutate_if(is.numeric, round, digits=1)
+#             
+#           #  ifelse(DD <= 12, 0,
+# #                                          ifelse(Tmax_sm >12 &  Tmax_sm <= 24, 1, 
+# #                                                 ifelse(Tmax_sm >24 & Tmax_sm <= 30, 2,
+# #                                                        ifelse(Tmax_sm >30 & Tmax_sm <= 36, 3,
+# #                                                            ifelse(Tmax_sm >36, 4, 5))))))
+# X0a$DD_delayed <- ifelse(X0a$DD_delayed <=0, 0, X0a$DD_delayed )
+# bgcs2 <- c("BWBSdk", "MSxv")
+# x.test <- X0a %>% dplyr::select(BGC, DD_delayed, DD5) %>% dplyr::filter(BGC %in% bgcs2)
+# 
+# X0 <- X0a
+```
+
+```{r reduce variables}
+X0 <- addVars(X0)
+
+IDVars <- X0[, .(ID1, Latitude, Longitude)]
+
+X0 <-
+  X0[, c("ID1", "BGC", vs33), with = F] 
+
+
+
+
+## select the variable set here
+count_tp <- X0 %>% dplyr::count(BGC)
+#X0 <- X0 %>% filter(!BGC == "ESSFab")
+
+```
+
+
+
+
+The preprocessing function from the caret package was used to identify variables with near-zero variance or correlation >0.90 in the combined data set. These variables were removed leaving a final variable set of 20 variables.
+```{r reduce variables, warning=FALSE} 
+########Remove near zero variance and highly correlated variables
+#X1_no_nzv_pca <- preProcess(X0, method = c( "nzv")) # DROP variables with near zero variance
+#X1_no_nzv_pca$method$remove
+#  X2b <- dplyr::select(X2a, -c(X1_no_nzv_pca$method$remove))
+#  X1 <- X1 %>%  na_if(-9999.0) %>% drop_na()
+# 
+# # calculate correlation matrix of variables
+  correlationMatrix <- cor(X0[,-c(1:2)])
+# # summarize the correlation matrix
+# #print(correlationMatrix)
+# # find attributes that are highly corrected (ideally >0.75)
+  highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.90, verbose = TRUE, names = TRUE) ## review for removal of highly correlated vars
+   highlyCorrelated
+  #X0 <- X0 %>% dplyr::select(-c(highlyCorrelated))%>% drop_na(BGC)
+
+   # 
+# 
+# modelvars <- colnames(X1 %>% dplyr::select(-ID1,  -BGC, everything()))
+# X1 <- X1 %>% dplyr::select(ID1, BGC, all_of(modelvars))
+# 
+# # modelvars <- read.csv("./inputs/Final14Var_WNABGCv11.csv")##use model variables from buildrf work
+# #X1 <- X1 %>% dplyr::select(ID1, BGC, modelvars$x) %>% drop_na(BGC)
+# X1$BGC <- as.factor(X1$BGC)
+# X1 <- droplevels(X1)
+
+```
+
+```{r remove poor BGCs}
+badbgs <- c("BWBSvk","ESSFdc3" ,"MSdm3", "ICHmc1a", "MHun", "SBSun", "ESSFun", "SWBvk")#, "ESSFab""CWHws2", "CWHwm", "CWHms1" , 
+X0 <- X0 %>%  filter(!BGC %in% badbgs)
+BGCunits <- X0 %>% arrange(BGC) %>% select(BGC)
+BGCunits <- unique(BGCunits$BGC)
+```
+
+```{r add in BGC Zone info}
+BGCZone <- fread(paste0(cloud_dir,"All_BGCs_Info_v12_2.csv"), data.table=FALSE) %>% dplyr::select(Zone, BGC)
+XAll <- left_join(X0, BGCZone) %>% dplyr::select(ID1, Zone, BGC, everything())
+
+```
+
+
+
+```{r visual comparison of BGC variables}
+#compare some units to check for varibale space overlap and IQR range differences
+bgcs <- c("SBSdk", 'IDFdk1', 'MSdm2')
+X.test <- XAll %>% filter(BGC %in% bgcs) 
+X.test2 <- X.test %>% pivot_longer(c(-ID1, -BGC, -Zone), names_to = "variable", values_to="value") %>% mutate_if(is.factor, as.character)
+#clim_pnts <- X.test[ , .(.N), by = .(BGC)] %>% droplevels()
+X.test2 <- as.data.table(X.test2)
+clim_summary <- X.test2[,.(iqr = IQR(value)), by = .(BGC,variable)]# %>% select(BGC, DD5)Mean = mean(value),
+clim_summary2 <-clim_summary %>%  pivot_wider( names_from = variable, values_from = iqr)
+ggplot(X.test2, aes(BGC,value))+
+  geom_boxplot()+
+  facet_wrap(~variable, scale = "free")
+
+zones <- c("CWH", "ICH", "ESSF", "MH", "SBS", "MS", "IDF")
+#zones <- unique(XAll$Zone)
+X.test <- XAll %>% filter(Zone %in% zones) 
+X.test2 <- X.test %>% pivot_longer(c(-ID1, -BGC, -Zone), names_to = "variable", values_to="value") %>% mutate_if(is.factor, as.character)
+#clim_pnts <- X.test[ , .(.N), by = .(BGC)] %>% droplevels()
+X.test2 <- as.data.table(X.test2)
+clim_summary <- X.test2[,.(iqr = IQR(value)), by = .(Zone,variable)]# %>% select(BGC, DD5)Mean = mean(value),
+clim_summary2 <-clim_summary %>%  pivot_wider( names_from = variable, values_from = iqr)
+ggplot(X.test2, aes(Zone,value))+
+  geom_boxplot()+
+  facet_wrap(~variable, scale = "free")
+
+
+```
+
+The new rebalanced training set is 310 668 points. This training set is submitted to ranger to generate a final climate model of BGCs for western north america.
+
+```{r}
+XAll <- as.data.frame(XAll) 
+X2 <- removeOutlier(XAll, alpha = .025, numIDvars = 3) ###set alpha for removal of outliers (2.5% = 3SD)
+ count_tp <- X2 %>% dplyr::count(BGC)
+```
+
+````{r remove very small units}
+XAll <- as.data.table(X2)
+BGC_Nums <- XAll[,.(Num = .N), by = BGC]
+BGC_good <- XAll[!BGC %in% BGC_Nums[Num < 10, BGC],]##remove BGCs with low numbers of points
+count_tp <- BGC_good %>% dplyr::count(BGC)
+
+`````
+
+### training point distribution bar graphs
+```{r raw training point summary, echo = FALSE, include = TRUE}
+# calculate summary of raw training data set
+X2_sum <- BGC_good %>%
+  dplyr::group_by(BGC) %>%
+  dplyr::summarise(freq = n()) %>%
+  dplyr::mutate(prop = round(freq/sum(freq),3))
+
+ggplot(X2_sum, aes(x= reorder(BGC, -prop), y = freq)) +
+  geom_bar(stat = "identity") + 
+  theme(axis.text.x = element_text(angle = 90))
+
+###change for Zone tests
+BGC_good <- as.data.frame(BGC_good)
+BGC_good_zone <- BGC_good %>% dplyr::select(-BGC) %>%  dplyr::rename(BGC = Zone)
+BGC_good_subzone <- BGC_good %>% dplyr::select(-Zone)
+BGC_split <- initial_split(BGC_good_zone, prop = .5, strata = BGC)
+BGC_train <- training(BGC_split)
+BGC_test <- testing(BGC_split)
+```
+
+```{r set up Zone model}
+require(themis)
+BGCbalance_recipe <-  recipe(BGC ~ ., data =  BGC_train) %>%
+    update_role(ID1, new_role = "id variable") %>% 
+    #update_role(BGC, new_role = "class2") %>% 
+    #step_corr(all_numeric()) %>%        # remove correlated covariates
+    #step_dummy(all_nominal(),-all_outcomes()) %>%    
+    # step_zv(all_numeric()) %>% # remove values with no variance
+    step_downsample(BGC, under_ratio = 66) %>%
+    #step_smote(BGC, over_ratio = .33, neighbors = 5) %>% 
+    prep()
+BGC_train2 <- BGCbalance_recipe  %>% juice()
+BGC_train2$BGC <- as.factor(BGC_train2$BGC)
+
+  BGC_train_sum2 <- BGC_train2 %>%
+  dplyr::group_by(BGC) %>%
+  dplyr::summarise(freq = n()) %>%
+  dplyr::mutate(prop = round(freq/sum(freq),3))
+
+ggplot( BGC_train_sum2, aes(x= reorder(BGC, -prop), y = freq)) +
+  geom_bar(stat = "identity") + 
+  theme(axis.text.x = element_text(angle = 90))+
+  ggtitle("Up/downsampled set")
+
+```
+##Build tidy model of BGC Zone
+```{r fit non-cv model fpr comparison, error=TRUE}
+randf_spec <- rand_forest(mtry = 6, min_n = 2, trees = 201) %>%
+  set_mode("classification") %>%
+  set_engine("ranger", importance = 'permutation') #or "permutations"impurity"
+
+BGC_workflow <- workflow() %>%
+    add_recipe(BGCbalance_recipe) %>%
+    add_model(randf_spec)
+
+BGC_rfzone <- fit(
+  BGC_workflow, 
+  BGC_train)
+covcount= BGC_rfzone$fit$fit$fit$num.independent.variables
+save(BGC_rfzone, file = paste0("./BGC_models/WNAv12_Zone_", covcount, "_Var_tidy_30June21.Rdata"))
+```
+
+
+```{r predict test set for Zone}
+
+######### Predict Test
+test_target <- as.data.frame(BGC_test$BGC) %>% dplyr::rename(BGC = 1)
+test.pred <-  predict(BGC_rfzone, BGC_test)
+test.pred <- cbind(test_target, test.pred) %>% mutate_if(is.character, as.factor)
+# levels(train.pred$target)
+
+###harmonize levels
+targ.lev <- levels(test.pred$BGC); pred.lev <- levels(test.pred$.pred_class)
+levs <- c(targ.lev, pred.lev) %>% unique()
+test.pred$BGC <- factor(test.pred$BGC, levels = levs)
+test.pred$.pred_class <- factor(test.pred$.pred_class, levels = levs)
+# 
+# train.acc <- acc_metrix(train.pred) %>% rename(train = .estimate)
+#source("./_functions/acc_metrix.R")
+test.acc <- acc_metrix(test.pred) %>% dplyr::select(.metric, .estimate) %>% dplyr::rename(metric = 1, test = 2)
+test.acc
+test.out <-   test.pred %>% 
+   conf_mat(BGC, .pred_class) %>%
+   pluck(1) %>%
+   as_tibble()# %>%
+
+ggplot(test.out, aes(Prediction, Truth, alpha = n)) +
+   geom_tile(show.legend = FALSE) +
+   geom_text(aes(label = n), colour = "black", alpha = 1, size = 3) +
+   theme(axis.text.x = element_text(angle = 90))
+# compare cv stats to test stats
+#acc.compare <- cbind(final_metrics, test.acc)
+
+ # kable(acc.compare)
+test.matrix <-  test.pred %>% 
+   conf_mat(BGC, .pred_class) %>% 
+   pluck(1) %>% as.data.frame() %>% 
+  pivot_wider(names_from = Prediction, values_from = Freq)
+
+fwrite(test.matrix, "./outputs/Zone_confusion_matrix.csv")
+
+
+# The confusion matrix can quickly be visualized using autoplot()
+library(ggplot2)
+test.mosaic <-   test.pred %>% 
+   conf_mat(BGC, .pred_class) %>% 
+autoplot(test.out, type = "mosaic")
+
+test.mosaic
+
+```
+
+```{r create deviation graphic}
+# calculate predicted vs obs pc for balancing types 
+# negative number = under predict and positive = over predicted)
+
+BGC.truth <- test.pred %>%
+  dplyr::count(BGC) %>% dplyr::rename("truth" = n)
+BGC.pred <- test.pred %>%
+  dplyr::count(.pred_class) %>% dplyr::rename("predict" = n, "BGC" = .pred_class)
+BGC_dev <- left_join(BGC.truth, BGC.pred) %>% group_by(BGC)
+BGC_dev <- BGC_dev %>% 
+
+  mutate(pred.diff = predict - truth,
+         pred_pc = (pred.diff/truth) * 100) %>% arrange(pred_pc)
+
+df_total <- as.data.frame(BGC_dev) %>% replace(is.na(.), 0)
+
+df_total2 <- df_total  %>%  group_by() %>% 
+            summarise(dev_tot = sum(abs(pred_pc)),
+            dev_var = var(abs(pred_pc)),
+            dev_mean = mean(abs(pred_pc)),
+            dev_sd = sd(abs(pred_pc))) 
+
+
+devtext <- as.data.frame(t(df_total2)) %>% round(1) %>% rownames_to_column()
+
+require(ggtext)
+BGC_dev  <- BGC_dev  %>%
+  mutate(BGC = fct_reorder(BGC, pred_pc))
+
+  ds_plot <- BGC_dev %>%   ggplot( aes(x=reorder(BGC, pred_pc), y=pred_pc)) +
+    geom_bar(stat='identity', width=.5) + #aes(fill = pred.obs.type)
+    coord_flip(ylim =c(-100, 110))
+label = df_total2 [3] %>% round(1)
+ds_plot <- ds_plot +
+  geom_textbox(data = devtext, width = .1,
+            size = 3, 
+            mapping = aes(x = 20 , y = -60 ,label = label),
+            colour = "blue"
+  )
+
+ds_plot
+require(ggpubr)
+ggexport(ds_plot, filename  = "./outputs/Deviation_graph.jpg", pointsize = 6, width = 800, height = 1200)
+
+```
+
+### Build model of BGC subzone/variant
+
+```{r review training point balance}
+require(themis)
+BGCbalance_recipe <-  recipe(BGC ~ ., data =  BGC_good_subzone) %>%
+    update_role(ID1, new_role = "id variable") %>% 
+    #update_role(BGC, new_role = "class2") %>% 
+    #step_corr(all_numeric()) %>%        # remove correlated covariates
+    #step_dummy(all_nominal(),-all_outcomes()) %>%    
+    # step_zv(all_numeric()) %>% # remove values with no variance
+    step_downsample(BGC, under_ratio = 70) %>%
+    step_smote(BGC, over_ratio = .1, neighbors = 5) %>% 
+    prep()
+BGC_train2 <- BGCbalance_recipe  %>% juice()
+BGC_train2$BGC <- as.factor(BGC_train2$BGC)
+
+  BGC_train_sum2 <- BGC_train2 %>%
+  dplyr::group_by(BGC) %>%
+  dplyr::summarise(freq = n()) %>%
+  dplyr::mutate(prop = round(freq/sum(freq),3))
+
+ggplot( BGC_train_sum2, aes(x= reorder(BGC, -prop), y = freq)) +
+  geom_bar(stat = "identity") + 
+  theme(axis.text.x = element_text(angle = 90))+
+  ggtitle("Up/downsampled set")
+
+```
+
+
+##Build final tidy model of BGC Subzone
+```{r fit non-cv model fpr comparison, error=TRUE}
+randf_spec <- rand_forest(mtry = 3, min_n = 2, trees = 101) %>%
+  set_mode("classification") %>%
+  set_engine("ranger", importance = 'permutation') #or "permutations"impurity"
+
+BGCbalance_recipe <-  recipe(BGC ~ ., data =  BGC_good_subzone) %>%
+    update_role(ID1, new_role = "id variable") %>% 
+    #update_role(BGC, new_role = "class2") %>% 
+    #step_corr(all_numeric()) %>%        # remove correlated covariates
+    #step_dummy(all_nominal(),-all_outcomes()) %>%    
+    # step_zv(all_numeric()) %>% # remove values with no variance
+    step_downsample(BGC, under_ratio = 70) %>%
+    step_smote(BGC, over_ratio = .1, neighbors = 5) %>% 
+    prep()
+
+BGC_workflow <- workflow() %>%
+    add_recipe(BGCbalance_recipe) %>%
+    add_model(randf_spec)
+
+BGC_rfzone <- fit(
+  BGC_workflow, 
+  BGC_good)
+ 
+pull_workflow_fit(BGC_rfzone) %>% 
+  vip(num_features = 13)
+covcount= BGC_rfzone$fit$fit$fit$num.independent.variables
+var.imp = BGC_rfzone$fit$fit$fit$variable.importance
+
+
+save(BGC_rfzone, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_tidy_30June21.Rdata"))
+
+
+```
+
+
+```{r build final ranger model with larger training point size, cache = TRUE, echo=FALSE}
+#XAll <-  fread( "./inputs/training_data/FinalTrainingSet_19Var_17Jan21.csv")
+BGC_good_subzone <- as_tibble(BGC_good_subzone) %>% mutate_if(is.character, as.factor)# %>% select(-Latitude, -Longitude)
+
+BGCbalance_recipe <-  recipe(BGC ~ ., data =  BGC_good_subzone) %>%
+    update_role(ID1, new_role = "id variable") %>% 
+    #update_role(BGC, new_role = "class2") %>% 
+    #step_corr(all_numeric()) %>%        # remove correlated covariates
+    #step_dummy(all_nominal(),-all_outcomes()) %>%    
+    # step_zv(all_numeric()) %>% # remove values with no variance
+    step_downsample(BGC, under_ratio = 66) %>%
+    #step_smote(BGC, over_ratio = .2, neighbors = 8) %>% 
+    prep()
+X_balanced <- BGCbalance_recipe  %>% juice()
+X_balanced$BGC <- as.factor(X_balanced$BGC)
+count_tp <- X_balanced %>% dplyr::count(BGC)
+#XAll <- X_balanced[,order(colnames(X_balanced))] %>% dplyr::select(ID1, BGC, CMD.total, DD5_sp,  PPT_JAS, bFFP, MCMT,  everything())# put the variable to be overweighted at the front to make weighting list easier
+#XAll <- X_balanced[,order(colnames(X_balanced))] %>% dplyr::select(ID1, BGC, CMD.total, DD5, MSP, FFP, EMT_threshold, MCMT, DD_delayed, everything())# DD_delayed,
+XAll <- X_balanced[,order(colnames(X_balanced))] %>% dplyr::select(ID1, BGC, MSP, DD_delayed, NFFD,  CMDMax, DD5, everything())
+# BGC_recipe <- recipe(BGC ~ .,  data = XAll) %>%
+#   update_role(ID1, new_role = "ID") %>% 
+#   step_center(all_predictors()) %>%
+#   step_scale(all_predictors()) %>%  prep(training = XAll, retain = TRUE)
+# 
+# XAll.juice <- juice(BGC_recipe)
+vs = XAll %>% select(-ID1, -BGC) %>% colnames()
+##probability of being selected with each mtry
+var.weight <- as.data.frame(vs) %>% mutate(wt = "")
+#var.weight$wt <- c(.3, .3, .7, .3, .1, .3, .3, .3, .3, .3, 0, .3, .3, .3, .5, .7, .3, .5, .3)
+var.weight$wt <- c(.1, 0.05, .1, .1, .2, .1, .1, .1, .1, .1, .1, .1)
+#var.weight$wt <- c(.1, .1, .1, .1, .1, .1, .1, .1, .1, .1, .1)
+# , .1# .1,
+   #               .1, .1, .1, .1, .1, .1, .1, .1, .1)##for 19
+# var.weight$wt <- c(.5, .4, .3, .1, .1, .1, .1, .1, .1, .1,
+#                    .1, .1, .1, .1, .1, .1, .1, .1, .1, .1,
+#                    .1, .1, .1, .1, .1, .1, .1, .1, .1, .1,
+#                    .1, .1, .1, .1, .1)##for 35
+
+var.weight.vec <- var.weight$wt
+#removebgc <- c("IDFdk1", 'ESSFdc3', 'IDFxm', 'MSdm3')
+#XAll.test <- XAll %>% filter(!BGC %in% removebgc) %>% droplevels()
+
+###Build variable weighted ranger model
+tic()
+BGCmodel2 <- ranger(BGC ~ ., data = XAll[-1],
+                           num.trees = 201,  seed = 12345,
+                            splitrule =  "extratrees", #""gini",
+                            #always.split.variables = c("DD5","CMD.total", "PPT_JAS"), #,
+                            split.select.weights = var.weight.vec,
+                    mtry = 3,
+                          #max.depth = .5,
+                    min.node.size = 2,
+                           importance = "permutation", write.forest = TRUE, classification = TRUE, probability = FALSE)
+
+toc()
+DF <- as.data.frame(BGCmodel2$variable.importance) %>% tibble::rownames_to_column() %>% dplyr::rename(w = 1, v = 2)
+covcount <- nrow(DF)
+
+ 
+save(BGCmodel2, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_ranger_30June21_3.Rdata"))
+test <- treeInfo(BGCmodel2,1)
+
+ ggplot(DF, aes(x=reorder(w,v), y=v,fill=v))+ 
+  geom_bar(stat="identity", position="dodge")+ coord_flip() +
+   ylab("Variable Importance")+
+   xlab("")+
+   ggtitle("Information Value Summary")+
+   guides(fill=F)+
+   scale_fill_gradient(low="red", high="blue")
+
+tic()
+#pred <- predict(BGCmodel2, data = XAll[-1])
+#probabilities <- as.data.frame(predict(BGCmodel2, data = XAll[-1],type='response', verbose = TRUE)$predictions)
+toc()
+#### build probability model for the current climate change period uncertainty
+# tic()
+# BGCmodel2p <- ranger(BGC ~ ., data = XAll[-1],
+#                            num.trees = 101,  seed = 12345,
+#                             splitrule =  "extratrees", #""gini",
+#                             #always.split.variables = c("DD5","CMD.total", "PPT_JAS"), #,
+#                             split.select.weights = var.weight.vec,
+#                     mtry = 5,
+#                           #max.depth = .5,
+#                     min.node.size = 5,
+#                            importance = "permutation", write.forest = TRUE, classification = TRUE,  probability = TRUE)
+# 
+# toc()
+# 
+# tic()
+# #predp <- predict(BGCmodel2p, data = XAll[-1])
+# #probabilitiesp <- as.data.frame(predict(BGCmodel2p, data = XAll[-1],type='response', verbose = TRUE)$predictions) %>% select(1)
+# toc()
+#  DF <- as.data.frame(BGCmodel2p$variable.importance) %>% tibble::rownames_to_column() %>% rename(w = 1, v = 2)
+#  covcount <- nrow(DF)
+# save(BGCmodel2p, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_ranger_26June21_probabilities.Rdata"))
+#load("./BGC_models/WNAv12_Subzone_19_Var_ranger_17Jan21_probabilities.Rdata")
+```
+
+```{r quick mtry tuning}
+###result was mtry = 3 for WNA subzones
+library(tuneRanger)
+res <- tuneMtryFast(BGC ~ ., data = XAll,  stepFactor = 1.5)
+
+```
+
+
+```{r run some test predictions}
+pred.test <- fread("Bednesti _1991_2019MSY.csv")
+pred.test2 <- pred.test %>% pivot_wider(id_cols = ID1, names_from = var, values_from = value) %>% addVars()
+#pred.test3 <- addVars(pred.test2)
+model_vars <- as.data.frame(BGCmodel2$variable.importance) %>% tibble::rownames_to_column()
+model_vars <- unique(model_vars$rowname)
+pred.test <- pred.test2 %>% select(ID1,model_vars)
+
+#pred <- predict(BGCmodel2, data = pred.test[-1])
+probabilities <- as.data.frame(predict(BGCmodel2, data = pred.test[-1],type='response', verbose = TRUE)$predictions)
+probabilitiesp <- as.data.frame(predict(BGCmodel2p, data = pred.test[-1],type='response', verbose = TRUE)$predictions)
+
+probabilitiesp2 <- probabilitiesp %>% tibble::rownames_to_column('Site') 
+probabilitiesp3 <- probabilitiesp2 %>% pivot_longer(cols = -Site, names_to = "BGC", values_to = "prob") %>% arrange(desc(prob))
+```
+
+# 
+```{r test overfit}
+# trainIndex <- createDataPartition(XAll$BGC, p = .9,
+#                                   list = FALSE,
+#                                   times = 1)
+# 
+# 
+# BGC_train <- XAll[ trainIndex,]
+# BGC_test  <- XAll[-trainIndex,]# %>% droplevels()
+# 
+# BGCmodel_train <- ranger(BGC ~ ., data = BGC_train[-1],
+#                            num.trees = 101,  seed = 12345,
+#                             splitrule =  "extratrees", #""gini",
+#                             #always.split.variables = c("DD5","CMD.total", "PPT_JAS"), #,
+#                             split.select.weights = var.weight.vec,
+#                     mtry = 5,
+#                           #max.depth = .5,
+#                     min.node.size = 5,
+#                            importance = "permutation", write.forest = TRUE, classification = TRUE)
+# 
+# BGCmodel_train
+# 
+#  grid.pred <- predict(BGCmodel_train, data = BGC_test[,-c(1)])
+#  BGC.pred <- as.data.frame(grid.pred$predictions)%>% tibble::rownames_to_column() %>% dplyr::rename("BGC.pred" = "grid.pred$predictions")
+# 
+# BGC.test <- BGC_test %>% select(BGC) %>% cbind(BGC.pred) %>%  select( -rowname)
+# levels(BGC.test$BGC) <- levels(BGC_train$BGC)
+# BGC_accuracy <- BGC.test %>%                   # test set predictions
+#   accuracy(truth = BGC, BGC.pred)
+#  table(BGC_accuracy)
+
+
+```
+
+```{r do cross validation}
+#####
+# set.seed(1234)
+# tr <- trainControl(method = "cv", number = 2, verboseIter = TRUE)
+# tgrid <- expand.grid(
+#   .mtry = c(2,3,5),
+#   .splitrule = "gini",
+#   .min.node.size = c(5, 10, 20)
+# )
+# 
+# tr_cv <- train(BGC ~ .,data=BGC_train[-1],method="ranger", split.select.weights = var.weight.vec, trControl= tr, tuneGrid = tgrid, num.trees = 101, num.threads = 7)
+# tr_cv
+# tr_cv$bestTune
+```
+
+
+``` {r build tidy model}
+# X0temp <- as.data.table(X0[Num > 500,])
+# X0temp$BGC <- as.factor(X0temp$BGC)
+# cl <- makeCluster(detectCores()-2)
+# registerDoParallel(cl)
+# 
+# X0_big <- foreach(unit = unique(X0temp$BGC), .combine = rbind,
+#                   .packages = c("clhs","data.table")) %dopar% {
+#   cat("Processing",unit,"\n")
+#   temp <- X0temp[BGC == unit,]
+#   num <- temp$New[1]
+#   #nz <- nearZeroVar(temp, names=T) ##do we need this?
+#   lhs <- clhs(temp[,!c("BGC","Num","LogNum","New")],size = (num -1), iter = 1000, use.cpp = T, simple = F)
+#   res <- lhs$sampled_data
+#   res$BGC <- unit
+#   res
+# }
+# 
+# X0temp <- as.data.table(X0[Num <= 100,])# %>% filter (!(BGC == "ESSFxh_WA" | BGC == "IMAun_UT" | BGC == "MHun" ))
+# #X0_small <- X0temp %>% select(-New, -Num, -LogNum)
+# 
+#  foreach(unit = unique(X0temp$BGC), .combine = rbind, .packages = c("clhs","data.table")) %do% {
+#   cat("Processing",unit,"\n")
+#   temp <- X0temp[BGC == unit,] %>% mutate_if(is.integer,as.numeric)
+#   temp$BGC <- as.numeric(as.factor(temp$BGC))
+#   num <- (temp$New[1])/temp$Num[1]
+#   temp <- as.data.table(temp)
+#   tempSMOTE <- smotefamily::SMOTE(temp[,!c("BGC","Num","LogNum","New")],
+#                              temp$BGC, K = 2, dup_size = ceiling(num))
+#   newCases <- temp$New[1] - temp$Num[1]
+#   synData <- tempSMOTE$syn_data
+#   synData <- synData[sample(1:nrow(synData), size = newCases, replace = F),]
+#   synData$class <- NULL
+#   synData$BGC <- unit
+#   synData
+# }
+# 
+# X0_OK[,Num := NULL]
+# #X0_OK<- X0_OK %>% select(-New,  -LogNum)
+# XAll <- rbind(X0_small,X0_OK,X0_big)
+# #XAll <- X0  ###unalanced data set
+# XAll <- as.data.table(XAll)
+# ```
+# 
+# ```{r setup tidymodel}
+# 
+# train_test_split <- initial_split(boston, prop = 0.9)
+# 
+# housing_train <- training(train_test_split)
+# 
+# housing_test <- testing(train_test_split)
+# 
+# 
+# 
+# BGC_recipe <- recipe(BGC ~ .,  data = XAll.test) %>%
+#     step_center(all_predictors()) %>%
+#   step_scale(all_predictors())
+# 
+# BGC_model <- rand_forest(trees = 101, mtry = tune()) %>%# min_n = 10specify that the model is a random forest
+#   #set_args(mtry = tune()) %>% specify that the `mtry` parameter needs to be tuned
+#   set_engine("randomForest", num.threads = (cores-1)) %>%  #, importance = "impurity, ) %>% select the engine/package that underlies the model
+#    set_mode("classification")
+# 
+#  # set the workflow
+# BGC_workflow <- workflow() %>%
+#   add_recipe(BGC_recipe) %>%
+#   add_model(BGC_model)
+# #
+# ## build model for prediction
+# BGCmodel.tidy <- BGC_workflow %>% fit(XAll)
+# BGCmodel.tidy <-fit(BGC_workflow, data = XAll.test)
+# gc()
+# 
+# BGCmodel.var <- pull_workflow_fit(BGCmodel.tidy)$fit
+# 
+# ###Variable importance
+# varimp <- as.data.frame(BGCmodel.var$importance)
+# covcount <- nrow(varimp)
+# BGCmodel <- BGCmodel.tidy
+# #saveRDS(BGCmodel.tidy, file = paste("./BGC_models/WNAv12_Zone_", covcount, "_Var_tidyrf3.rds"))
+# #parsed <- parse_model(BGCmodel.var)
+# #write_yaml(parsed, "my_model.yml")
+# save(BGCmodel.tidy, file= paste("./BGC_models/WNAv12_Zone_",covcount,  "_Var_tidyrf3.RData"))
+# 
+# 
+```
+
+```
+
+#X0[,BGC := as.factor(BGC)]
+# XAll2 <- X0# %>% select(-MCMT, -Tmin_wt)
+# BGCmodel2 <- ranger(BGC ~ ., data = XAll,
+#                            num.trees = 101,  seed = 12345,
+#                             splitrule =  "extratrees", #""gini",
+#                             always.split.variables = c("DD5_sp","CMD.total", "MSP"), #,
+#                             #mtry = 8,
+#                           #max.depth = .5,
+#                     #min.node.size = 2,
+#                            importance = "impurity", write.forest = TRUE, classification = TRUE)
+# 
+# DF <- as.data.frame(BGCmodel2$variable.importance) %>% tibble::rownames_to_column() %>% rename(w = 1, v = 2)
+# covcount <- count(DF)
+#  ggplot(DF, aes(x=reorder(w,v), y=v,fill=v))+ 
+#   geom_bar(stat="identity", position="dodge")+ coord_flip() +
+#    ylab("Variable Importance")+
+#    xlab("")+
+#    ggtitle("Information Value Summary")+
+#    guides(fill=F)+
+#    scale_fill_gradient(low="red", high="blue")
+#  
+# save(BGCmodel2,file= paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_ranger_reduced4.Rdata"))
+# test <- treeInfo(BGCmodel2,1)
+
+# test
+# #
+#=#strata=BGC, sampsize= c(500),do.trace = 10, 
+# ##Simple rF model
+ # BGCmodel <- randomForest(BGC ~ ., data=XAll,  do.trace = 10, 
+ #                         ntree=101, na.action=na.omit, importance=TRUE, proximity=FALSE)
+ # 
+
+## tidymodel version
+
+
+DF <- varimp %>% tibble::rownames_to_column() %>% rename(w = 1, v = 2)
+
+BGCmodel
+v <-as.data.frame(BGCmodel.var$importance)
+
+#DF <- v %>% tibble::rownames_to_column() %>% rename(w = rowname, v = 'BGCmodel.var$importance')
+# 
+#  ggplot(DF, aes(x=reorder(w,v), y=v,fill=v))+
+#   geom_bar(stat="identity", position="dodge")+ coord_flip() +
+#    ylab("Variable Importance")+
+#    xlab("")+
+#    ggtitle("Information Value Summary")+
+#    guides(fill=F)+
+#    scale_fill_gradient(low="red", high="blue")
+# #
+#  
+ 
+# BGCmodel2 <- randomForest(BGC ~ ., data=XAll,  do.trace = 10,
+#                          ntree=101, na.action=na.omit, importance=TRUE, 
+#                          proximity=FALSE, keep.forest = T, localImp = T)
+# 
+# library(randomForestExplainer)
+# min_depth_frame <- min_depth_distribution(BGCmodel2)
+# explain_forest(BGCmodel2)
+# 
+# library(reprtree)
+# rtree <- ReprTree(BGCmodel2,)
+# reprtree:::plot.getTree(BGCmodel2)
+
+# model_vars <- as.data.frame(BGCmodel$variable.importance) %>% tibble::rownames_to_column()
+# model_vars <- as.data.frame(BGCmodel$importance) %>% tibble::rownames_to_column()
+# covcount <- count(model_vars)
+#  fname <- "new_35VAR"
+# model = "_rf_6Oct2020"
+# write.csv (BGCmodel$variable.importance, file= paste("./outputs/",covcount,"Var_Importance_xtra",model,".csv",sep=""))
+# write.csv (BGCmodel$prediction.error, file= paste("./outputs/",covcount,"_Error",model,".csv",sep=""))
+# write.csv (BGCmodel$confusion.matrix, file= paste("./outputs/",covcount,"_ConfusionMatrix",model,".csv",sep=""))
+
+```
+
+
+
+```{r load and prep training data}
+#X0 <- fread("./inputs/BC_2000m_Pts_Normal_1961_1990MSY_reduced.csv")
+#X0 <- fread("./inputs/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+# Xreduce <- fread("./inputs/ClosestCentroid24Var.csv")
+# Xreduce <- Xreduce %>% dplyr::select(-BGC)
+# Xjoin <- left_join(Xreduce, X0,  by = "ID1") 
+# XDistrict <- fread("./inputs/WNA_2k_ID_District.csv") %>% select(-Latitude,-Longitude)
+# Xjoin <- left_join(Xjoin, XDistrict)
+# XTSA <- fread("./inputs/WNA_2k_ID_TSA.csv" )%>% select(-Latitude,-Longitude)
+# Xjoin <- left_join(Xjoin, XTSA)
+# Xjoin <- Xjoin %>% filter (!(BGC == 'CWHws2' & Dist_Code == 'DSS')) %>%
+#                       filter (!(BGC == 'CWHws2' & Dist_Code == 'DND')) %>% 
+#                         filter (!(BGC == 'ICHmc2' & Dist_Code == 'DND')) %>% 
+#                     filter (!(BGC == 'ICHmc2' & Dist_Code == 'DSS')) %>% 
+#                      filter (!(BGC == 'SBSmc2' & Dist_Code == 'DNI')) %>%  
+#                     filter (!(BGC == 'CWHms1' & Dist_Code == 'DCS')) %>% 
+#                          filter (!(BGC == 'CWHms1' & Dist_Code == 'DCC')) %>% 
+#                        filter (!(BGC == 'CWHds1' & Dist_Code == 'DCC')) %>% 
+#                          filter (!(BGC == 'IDFdk1' & Dist_Code == 'DOS'))                    
+##---------Create BGC+District units
+      #Xjoin <- Xjoin %>% unite(BGC, c("ID2","Dist_Code"))
+      #X0 <- Xjoin %>%  filter(Same == "TRUE") %>% dplyr::select(-ID1,-Latitude, -Longitude,-Elevation, -Same, -Centroid, -MD, -TSA)
+    ### Output file to look at excluded training points in QGIS
+    #X0_site <- Xjoin %>% select(ID1, ID2, Latitude, Longitude, Same, Centroid, MD) 
+    #write.csv (X0_site, "./outputs/2kmPoints_outliers2.csv")
+#
+# X1 <- Xjoin  %>% filter(Same == "TRUE") %>% dplyr::select( -Same, -Centroid, -MD)## %>% dplyr::rename(BGC = ID2)-ID1,-Latitude, -Longitude
+
+#X0 <- X0 %>% dplyr::rename(BGC = ID2) #%>% dplyr::select(-V1, -ID1,-Latitude, -Longitude,-Elevation)
+
+#BGC_names <- fread("D:/CommonTables/BGC_maps/WNAv12_BGClist.csv")
+
+###removing coast transition mapping/climate surface problems
+
+#       bad_bgcs <- c('MSdm3', 'ESSFdc3', 'ICHmk2', 'IDFdc', 'SBSun')
+# ###------------reduced 1 Coast Tranistion Units occuring in the interior
+# X0_removed <- XAll2 %>%# filter (!(BGC == 'CWHws2' & MCMT <= -7)) %>%
+# #                         filter (!(BGC == 'CWHds1' & MCMT <= -4)) %>%
+# #                         filter (!(BGC == 'CWHds2' & MCMT <= -6)) %>%
+# #                          filter (!(BGC == 'CWHms2' & MCMT <= -6)) %>%
+# #                            filter (!(BGC == 'CWHws2' & MCMT <= -6.5)) %>%
+# #                           filter (!(BGC == 'ICHmc2' & MCMT <= -8.5)) %>%
+# #                           filter (!(BGC == 'ICHmc1' & MCMT <= -9.5)) %>%
+# #                           filter (!(BGC == 'MHmm2' & MCMT <= -9)) %>%
+#   #-------------------reduced 2 droughty BGCs with dirty CMD
+#                            filter (!(BGC == 'IDFdk1' & CMD.total <= 290)) %>%
+#                             filter (!(BGC == 'IDFxm' & CMD.total <= 320)) %>%
+#                             filter (!(BGC == 'IDFdk2' & DD5 <= 1000)) %>%
+#                               filter (!(BGC == 'ESSFdc2' & CMD.total <= 130)) %>%
+#   #-------------------reduced 3 BGCs around Kamloops with very mixed mapping
+# 
+#                             filter (!(BGC %in% bad_bgcs)) %>%
+#   #-------------------reduce 4  Variable Kamloops units
+#                             filter (!(BGC == 'MSxk2' & MSP >= 225)) %>%
+#                             filter (!(BGC == 'IDFxh2' & MSP >= 200)) %>%
+#                            #filter (!(BGC == 'ESSFdc2' & Longitude >= -120.5)) %>%
+#                               filter (!(BGC == 'MSdm2' & MSP >= 215))
+# 
+# XAll3 <- X0_removed %>% droplevels()
+
+  # bgcs <- BGC_names
+
+# X0 <- inner_join(X0, BGC_names) %>% select(-BGC) 
+# X0$BGC <- X0$Zone
+#X0$BGC <-   dplyr::recode(X0$BGC, MS = "SBS_MS", SBS = "SBS_MS", SBPS = "SBS_MS", BWBS = "SBS_MS", SWB = "SBS_MS", ESSF= "SBS_MS",.default = "Not_Boreal")
+#X0$BGC <-   dplyr::recode(X0$BGC, ICH = "ICH", default = "Not_ICH")
+
+#X0$BGC <-   dplyr::recode(X0$BGC, BAFA = "Alpine",IMA = "Alpine", CMA = "Alpine", .default = "Not_Alpine")
+#X0$BGC <-   dplyr::recode(X0$BGC, CWH = "Coast", CDF = "Coast", CRF = "Coast", .default = "Interior")                      
+#X0$BGC <-   dplyr::recode(X0$BGC, IDF = "IDF_PP", BG = "IDF_PP", PP = "IDF_PP")
+#bgcs <- c("IDFww1", "BWBSuf", "BWBSlb", "ICHmc1a", "MHun", "ESSFab","ESSFmkp")
+#bgcs <- c("IDFxh2")#"MHmm2", "CWHds1", 
+#X0 <- X0 %>% filter (BGC %in% bgcs)
+
+# X1[X1 == -9999] <- NA
+# X1 <- X1[complete.cases(X1),]
+#X0 <- addVars(X0)
+
+
+#xx <- X0 %>% filter(BGC == "IDFdk1")
+
+#X0[,ID1 := NULL]
+#setnames(X0, old = c("V1","ID2"), new = c("ID1","BGC"))
+#IDVars <- X1[,.(ID1,Latitude,Longitude)]
+#X1 <- X1[,c("ID1","BGC",vs9), with = F] ## select the variable set here
+#X0 <- X0[,c("BGC",vs9), with = F] ## select the variable set here
+# dists <- st_read(dsn = "./inputs/TSA_Boundaries.gpkg")
+# pnts <- st_as_sf(IDVars, coords = c("Longitude","Latitude"), crs = 4326)
+# dists <- dists["TSA_NUMB_1"]
+# dists <- st_transform(dists,4326)
+# pnts2 <- st_join(pnts,dists,left = F)
+# pnts2 <- st_drop_geometry(pnts2)
+# pnts2 <- as.data.table(pnts2)
+# IDVars[pnts2, TSA := i.TSA_NUMB_1, on = "ID1"]
+# fwrite(IDVars,"WNA_2k_ID_TSA.csv")
+# no_nzv <- preProcess(X0[,!c("BGC","ID1")], method = c( "nzv"))
+# no_nzv$method$remove
+# no_corr <- findCorrelation(cor(X0[,!c("BGC","ID1")]), cutoff = .9, names = TRUE, verbose = F)
+# toRemove <- unique(c(no_nzv$method$remove,no_corr))
+# X0[,(toRemove) := NULL]
+
+
+# X0 <- addInteractVars(X0)
+# X0 <- X0 %>% select(-Tmin_wt, -MCMT, -PPT_JAS, -PPT_MJ, -PPT_sm, -PPT_wt, -PPT.dormant, -PPT_sp, -MSP,  -PAS_sm )
+
+#X0 <- as.data.frame(X0)
+
+#count_tp <- X1 %>% dplyr::count(BGC)
+#X0 <- X0 %>% select(BGC, everything())
+#XO <- X0 %>% select(ID1, BGC, CMD.total, DD5_sp, MSP, MCMT)%>% mutate_if(is_integer,as.numeric) 
+#X0 <- X0 %>% mutate_if (is.factor, as.character) %>% mutate_if(is_integer,as.numeric) %>% mutate_if(is.character, as.factor)
+
+### r remove outlier points}
+# removeOutlier <- function(dat, alpha){
+#   temp <- as.data.table(dat)
+#   temp[,MD := mahalanobis(.SD,center = colMeans(.SD),cov = pseudoinverse(cov(.SD)), inverted = T), by = BGC]
+#   ctf <- qchisq(1-alpha, df = ncol(temp)-1)
+#   temp <- temp[MD < ctf,]
+#   return(temp)
+# }
+# 
+# #Xoutlier2 <- Xoutlier %>% filter(BGC == "IDFdk1")
+# #XX1 <- removeOutlier(Xoutlier, alpha = .01, numIDvars = 1) ###set alpha for removal of outlieres (2.5% = 3SD)
+# ###outlier function requires 1 column labeled BGC and no other id columns
+# XX <- removeOutlier(Xoutlier, alpha = 0.4) ###set alpha for removal of outlieres (2.5% = 3SD)
+# XX1 <- XX %>% select(ID1) %>% left_join(IDVars) ###write csv to see where the plots now occur
+# 
+# X0 <- XX %>% select(ID1) %>% left_join(X0) ### join the reduced points to original variable data
+# X0 <- as.data.table(X0)
+# 
+# count_tp <- X0 %>% dplyr::count(BGC)
+# X0 <- X0 %>% select(BGC, everything())
+```
+
+## For getting metrics
+
+```{r build test models ranger model with larger training point size, cache = TRUE, echo=FALSE}
+## tidymodel version with cross validation
+
+# set.seed(234589)
+# # split the data into trainng (75%) and testing (25%)
+# ## prep data
+# BGC_split <- initial_split(XAll, prop = 3/4)
+# #BGC_train <- XAll
+# BGC_train <- training(BGC_split) %>% droplevels()
+# BGC_test <- testing(BGC_split) %>% droplevels()
+# BGC_folds <- vfold_cv(BGC_train, v=10)
+# ##M recipe
+# BGC_recipe <- recipe(BGC ~ .,  data = BGC_train)
+# BGC_model <- rand_forest(trees = 71) %>%# specify that the model is a random forest
+#   #set_args(mtry = tune()) %>% specify that the `mtry` parameter needs to be tuned
+#   set_engine("randomForest") %>%  #,, importance = "impurity" ) %>% select the engine/package that underlies the model
+#    set_mode("classification") 
+#  
+#  # set the workflow
+# BGC_workflow <- workflow() %>%
+#   add_recipe(BGC_recipe) %>%
+#   add_model(BGC_model)
+# 
+# ##build cross-validated model
+# BGCmodel.tidy.cv <- BGC_workflow %>% fit_resamples(BGC_folds)
+# metrics_BGC <- collect_metrics(BGCmodel.tidy,cv)
+# 
+# ## build model for prediction
+# tic()
+# BGCmodel.tidy <- BGC_workflow %>% fit(BGC_train)
+# toc()
+# gc()
+# BGCmodel.var <- pull_workflow_fit(BGCmodel.tidy)$fit
+# 
+# ###Variable importance
+# varimp <- as.data.frame(BGCmodel.var$importance)
+# covcount <- count(varimp)
+# BGCmodel.var <-as.data.frame(BGCmodel.var$importance)
+# DF <- varimp %>% tibble::rownames_to_column() %>% rename(w = 1, v = 2)
+#  
+#  ggplot(DF, aes(x=reorder(w,v), y=v,fill=v))+ 
+#   geom_bar(stat="identity", position="dodge")+ coord_flip() +
+#    ylab("Variable Importance")+
+#    xlab("")+
+#    ggtitle("Information Value Summary")+
+#    guides(fill=F)+
+#    scale_fill_gradient(low="red", high="blue")
+# # varimport <- BGCmodel.tidy %>% 
+# #   pull_workflow_fit() %>% 
+# #   vip(num_features = 10)
+# 
+# ### predict test set
+# BGC_testing_pred <- 
+#   predict(BGCmodel.tidy, BGC_test) %>% 
+#   bind_cols(predict(BGCmodel.tidy, BGC_test, type = "prob")) %>% 
+#   bind_cols(BGC_test %>% select(BGC))
+# 
+# ###look at  accuracy against test set
+# 
+# BGC_accuracy <- BGC_testing_pred %>%                   # test set predictions
+#   accuracy(truth = BGC, .pred_class)
+# 
+# table(BGC_accuracy)
+# 
+# BGCmodel <- BGCmodel.tidy
+# save(BGCmodel,file= paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_tidyrf5.Rdata"))
+# 
+# model = "_rf_18Oct2020"
+# write.csv (BGCmodel$variable.importance, file= paste("./outputs/",covcount,"Var_Importance_xtra",model,".csv",sep=""))
+# write.csv (BGCmodel$prediction.error, file= paste("./outputs/",covcount,"_Error",model,".csv",sep=""))
+# write.csv (BGCmodel$confusion.matrix, file= paste("./outputs/",covcount,"_ConfusionMatrix",model,".csv",sep=""))
+
+```
+
+
+##Not yet functioning
+
+``` {r c add region code to BGCs for testing }
+# X_test <- fread("./inputs/WNAv12_2000m_Pts_Normal_1961_1990MSY.csv")
+# coordinates (X_test) <- ~ Longitude + Latitude
+# proj4string(X_test) = CRS("+init=epsg:4326")
+# pt.rast <- st_as_sf(X_test) %>% st_transform( crs = st_crs(3005))
+# 
+# 
+# 
+#   districts = st_read("D:/CommonTables/BC_AB_US_Shp/ForestRegions.gpkg", layer = "ForestDistricts2") %>% st_as_sf() %>%# filter(ORG_UNIT %in% region) %>%  ## district boundaries
+#     st_transform( crs = st_crs(3005)) %>%
+#   # st_buffer(., dist = 500) %>%
+#   as(., "Spatial")
+# 
+#    # as(., "Spatial")
+# districts$code <- as.factor(districts$ORG_UNIT)
+# district.names <- as.data.frame(levels(districts$code))%>% rownames_to_column("ID")
+# district.names$ID <- as.integer(district.names$ID)
+# 
+# districts.rast <- fasterize::fasterize(districts, pt.rast, field = "code", fun = "first")
+# plot(wna_bgc.rast)
+# ##------------------------------------------------------------------------------------------
+# 
+# ID2 <- ""
+# ID2 <- raster::extract(wna_bgc.rast,wna.pt.rast)
+# ID2 <- as.data.frame(ID2) %>% rownames_to_column("ID1")
+# #ID2$ID2 <- as.integer(ID2$ID2)
+# 
+# ID <- left_join (ID2, BGC.names, by = c("ID2" = "factorID")  )
+# 
+# 
+# # wna.pt3 <-  st_coordinates(wna.pt2) 
+# # wna.pt3 <- as.data.frame(wna.pt3) %>% rownames_to_column("ID1")
+# # wna_cb1 <- left_join(wna.pt3, elev) %>% rename("latitude" = Y, "longitude" = X) 
+# wna_cb <- left_join(wna_cb1, ID)
+# wna_cb <- wna_cb %>% dplyr::select(-ID2) %>% rename(ID2 = 5)
+# 
+# Old code
+```
+
+###old code
+
+```{r old code}
+# addInteractVars <- function(dat){
+#     BGC_recipe <- recipe(BGC ~ .,  data = dat) ###cold BGCs (SBS, ESSF)
+# interact_2 <- BGC_recipe %>%
+#   step_interact(terms = ~ Tmin_wt:DD5_sp)
+# interact_2 <- prep(interact_2, training = dat)
+# dat <- bake(interact_2,dat)
+# 
+# BGC_recipe <- recipe(BGC ~ .,  data = dat) ###dry warm (IDF, PP, BG)
+# interact_3 <- BGC_recipe %>%
+#   step_interact(terms = ~ CMD.total:DD5_sp)
+# interact_3 <- prep(interact_3, training = dat)
+# dat <- bake(interact_3,dat)
+# 
+# BGC_recipe <- recipe(BGC ~ .,  data = dat) ### low drought from cold vs low drought from precip
+# interact_4 <- BGC_recipe %>%
+#   step_interact(terms = ~ CMD.total:MSP)
+# interact_4 <- prep(interact_4, training = dat)
+# dat <- bake(interact_4,dat)
+# 
+# BGC_recipe <- recipe(BGC ~ .,  data = dat) ## 
+# interact_5 <- BGC_recipe %>%
+#   step_interact(terms = ~ CMD.total:MSP:DD5_sp)
+# interact_5 <- prep(interact_5, training = dat)
+# dat <- bake(interact_5,dat)
+# 
+# BGC_recipe <- recipe(BGC ~ .,  data = dat)
+# interact_1 <- BGC_recipe %>%
+#   step_interact(terms = ~ CMD.total:MSP:DD5_sp:Tmin_wt)
+# interact_1 <- prep(interact_1, training = dat)
+# dat <- bake(interact_1,dat)
+# 
+# BGC_recipe <- recipe(BGC ~ .,  data = dat) ##Coast vs interior Continentaliy plus growing 
+# interact_6 <- BGC_recipe %>%
+#   step_interact(terms = ~ CCI:DD5_sp)
+# interact_6 <- prep(interact_6, training = dat)
+# dat <- bake(interact_6,dat)
+#   #   
+#   #   (dat$PAS10 + dat$PAS11  + dat$PAS12 + dat$PAS01 + dat$PAS02 + dat$PAS03 + dat$PAS04 ) - ((dat$DD5_11 + dat$DD5_wt  + dat$DD5_03) * 50)
+#   # dat$Snow <- ifelse (dat$Snow <0, 0, dat$Snow)
+#  return(dat)
+#}
+
+```
+
+
+```{r predict 2km hex}
+#load( "./outputs/WNAv11_9_VAR_SubZone_ranger.Rdata")
+# vars <- as.data.frame(BGCmodel$variable.importance)
+# vars <- row.names(vars)
+# X1 <- fread("./inputs/WNA_2k_HexPts_BGC_Normal_1961_1990MSY.csv", stringsAsFactors = FALSE, data.table = FALSE)
+# X1_loc <-  X1 %>% dplyr::select(ID1, Latitude, Longitude, Elevation)
+# X1 <- addVars(X1)
+# X1 <- X1 %>% dplyr::select(ID1, vars)
+# #X1 <- fread("D:/CommonTables/HexGrids/WNAv11_HexGrid_800m_Cleaned_Normal_1961_1990MSY.csv", stringsAsFactors = FALSE, data.table = FALSE)
+# 
+# X1_loc$preds <- predictions(predict(BGCmodel, data = X1[-c(1)]))
+# #X.pred2 <- cbind(X1_loc, X.pred$predictions)
+# fwrite(X1_loc, "BGC_NormalPeriod_Predicted_20var_new.csv")
+# dem <- raster(df)
+# projection(dem) <- P4S.albers
+# par(mfrow=c(1,1))
+# plot(dem)
+# sum(!is.na(values(dem)))
+
+```
+
+
+```{r build other ML models}
+
+# Test models between all training points and where outliers removed
+# set.seed(123321)
+# coreNo <- makePSOCKcluster(detectCores() - 1)
+# registerDoParallel(coreNo, cores = detectCores() - 1)
+# Cores <- as.numeric(detectCores()-1)
+# ctrl <- trainControl(method = "cv", number = 10,# repeats = 5,
+#                      classProbs = FALSE, verboseIter = T,
+#                      savePredictions = "final", 
+#                      allowParallel = F)
+# 
+# 
+# #BGCmodel_rang <- train(Zone  ~ ., data = X1_Bio1[-2], #for zone
+# BGCmodel_subz <- train(BGC  ~ ., data = X1_final2[-1], # for subzone
+#                      method = "ranger",
+#                      #preProcess = c("center", "scale", "YeoJohnson"), #,tuneGrid = tgrid,
+#                       trControl = ctrl,
+#                       importance = "impurity")
+# 
+#  stopCluster(coreNo)
+#  gc()
+# 
+# BGCmodel_subz
+# file=paste("./outputs/USA_SubZone_rangercaret_Mar30",".Rdata",sep="")
+# save(BGCmodel_subz,file=file)
+
+# ##Simple rF model
+# BGCmodel <- randomForest(BGC ~ ., data=X1[-1],  do.trace = 10, 
+#                          ntree=151, na.action=na.omit, importance=TRUE, proximity=FALSE)
+# 
+#  save(BGCmodel,file= "./outputs/WNAv11_23_VAR_rf.Rdata")
+# #fname <- "BGCv11_AB_USA_500each_27VAR_SubZone"
+# fname <- "WNA_var23"
+# model = "_rF_01Jan2019"
+# write.csv(BGCmodel$proximity, file= paste("./outputs/", fname,"_Proximity",model,".csv",sep=""))
+# write.csv(BGCmodel$importance, file= paste("./outputs/",fname,"_Importance",model,".csv",sep=""))
+# write.csv(BGCmodel$err.rate, file= paste("./outputs/",fname,"_Error",model,".csv",sep=""))
+# write.csv(BGCmodel$confusion, file= paste("./outputs/",fname,"_ConfusionMatrix",model,".csv",sep=""))
+# write.csv(BGCmodel$confusion[, 'class.error'], file= paste("./outputs/",fname,"_Confusion",model,".csv",sep=""))
+# VIP <- varImpPlot(BGCmodel, sort=TRUE) 
+# varImpPlot(BGCmodel, sort=TRUE) 
+# write.csv(VIP, file= paste("./outputs/",fname,"_OBO",model,".csv",sep=""))
+# dev.copy(pdf,(paste(model,'"./outputs/VarImpPlot.pdf')))
+# dev.off()
+# 
+#  ###caret package version
+# ###Go back to 
+#  set.seed(123321)
+# coreNo <- makeCluster(6)
+# registerDoParallel(coreNo)
+#   control <-trainControl(classProbs = TRUE, allowParallel = TRUE) #method = 'cv', number = 2)#, repeats = 3
+#    BGCmodel_caret <- caret::train(BGC ~ ., data=X1,  method= "rf", trControl = control)#,tuneLength = 2,, mtry = 3,  ntree=31)
+#  print(BGCmodel_caret)
+# stopCluster(coreNo)
+# # gc()
+#save(BGCmodel_caret,file= "./outputs/WNAv11_16VAR_SubZone_caret.Rdata")
+
+```
+
+The preprocessing function from the caret package was used to identify variables with near-zero variance or correlation >0.90 in the combined data set. These variables were removed leaving a final variable set of 20 variables.
+```{r reduce variables, warning=FALSE} 
+X1_no_nzv_pca <- preProcess(X1[-1], method = c( "nzv")) # DROP variables with near zero variance
+X1_no_nzv_pca
+X1_test <- dplyr::select(X1, -c(X1_no_nzv_pca$method$remove))
+X1_test <- X1_test %>%  na_if(-9999.0) %>% drop_na()
+month <- c("01", "02", "03", "04", "05", "06","07", "08", "09", "10", "11", "12")
+X2 <- X1_test  %>% dplyr::select(-ends_with(month)) %>% #removes all monthly variables
+  dplyr::select(-starts_with("Rad")) %>% ##remove other non-biological variables
+  dplyr::select(-starts_with("RH")) #%>%
+  # dplyr::select (-contains("DD_0")) %>%
+  #  dplyr::select  (-contains("DD18")) %>%
+  #  dplyr::select  (-contains("DD_18"))  %>%
+  # dplyr::select( -PPT_sp, -FFP, -PAS_sm, -PPT_at, -PAS_at, - MAP, -TD, -MAT)# remove some redundant variables considered undesireable
+
+########Remove near zero variance and highly correlated variables
+X2<- X2 %>%  na_if(-9999.0) %>% drop_na() # drop points without complete data
+
+X_corr <- cor(X2[-1])
+X1_corr <- findCorrelation(X_corr, cutoff = .90, names = TRUE, verbose = F)
+X1_corr2 <- as.data.frame(X1_corr)
+X3 <- dplyr::select(X2, -c(X1_corr))
+modelvars <- colnames(X3)
+modelvars
+write.csv(modelvars, "./outputs/74Var_WNABGCv11.csv", row.names = FALSE)
+#modelvars <- fread("./outputs/15Var_WNABGCv11.csv")
+
+```
+
+A larger training point set was built from 2 km hex grid of points for western north america. Points are overlayed the WNA Biogeoclimatic map to identify BGC membership.
+```{r build training point set, cache = TRUE}
+X0 <- fread("./inputs/WNA_2k_HexPts_BGC_Normal_1961_1990MSY.csv")
+
+X0_loc <-  X0 %>% dplyr::select(ID1, Latitude, Longitude, Elevation)
+
+X0 <- addVars(X0)
+##split a couple of units N/S with tree species implications
+# X0 <- X0 %>% 
+#     mutate(
+#       BGC = if_else(BGC == "MSab" & Latitude >51.5, "MSab_N", 
+#        if_else(BGC == "CWHvm1" & Latitude >52, "CWHvm1_PR", BGC)))
+
+
+modelvars <- read.csv("./outputs/35Var_WNABGCv11.csv") ### from current and future = uncorrelated
+modelvars <- read.csv("./outputs/AllVar_WNABGCv11.csv") ### 260 variables from CLimateNA
+modelvars <- read.csv("./outputs/20Var_WNABGCv11.csv") ### YS variable from current 90% uncorrelated and nzv removed
+# modelvars <- modelvars %>% filter(!x== "DD_0_at")
+# write.csv(modelvars, "./outputs/18Var_WNABGCv11.csv", row.names = FALSE)
+modelvars <- read.csv("./outputs/19Var_WNABGCv11.csv") ### 20 Var with TD removed
+modelvars <- read.csv("./outputs/18Var_WNABGCv11.csv") ### 20 Var with TD and DD_0_at removed
+modelvars <- read.csv("./outputs/74Var_WNABGCv11.csv") ### YS variables
+modelvars <- read.csv("./outputs/WHMVar_WNABGCv11.csv") ### picked list with emphasis on controlling variables
+
+X1 <- X0 %>% dplyr::select(ID1, BGC, modelvars$x) %>% drop_na(BGC)
+
+
+
+X1$BGC <- as.factor(X1$BGC)
+
+
+#write.csv(X_corr,"./outputs/22variablecorrelation.csv")
+# model = "5.1"
+# VarList = c("AHM", "bFFP","CMD.total","DD5_sp","EMT","Eref_sm","EXT","FFP","MCMT","MSP",
+#             "PPT_JAS","PPT_MJ","PPT06","SHM","TD","Tmax_sp","Tmin_at","Tmin_sm","Tmin_wt","PAS",
+#             "CMD.def","CMDMax","eFFP","Eref09","MAT","PPT07","Tmin_sp")
+# List = c("ID1", "BGC")
+# X1$BGC  <- as.factor(X1$BGC)
+# X1 <- X1[,names(X1) %in% c(List,VarList)]
+# modelvars <- read.csv (as.character("./outputs/Final23Var_WNABGCv11.csv"))
+# modelvars <- as.character(modelvars$x)
+
+```
+
+
+```{r mahanolobis distance of BGCs}
+X4 <- X1 %>% mutate_if(is.numeric,as.integer) %>% mutate_if(is.factor,as.integer)
+mah <- as.data.table(X4)[BGC %in% c(1,2), mahalanobis.dist(CMD_sp), keyby = BGC]
+
+X4 <- as.data.table(X4)
+mah.dat <- X4 [BGC, mahalanobis.dist(data.x = X4), keyby = BGC]
+
+```
+
+The 1,175,378 training point population is highly imbalanced between the 362 biogeoclimatic subzone/variants. Geographically large BGCs dominate the machine learning model when raw data set are used in the training set. A partial balancing of the raw training point between classes was applied to counteract this effect. Rebalancing is accomplished by log10 scaling the count of points per BGC and then rescaling the log scale to a range of 200 - 2000 training points per BGC.  Large BGCs with raw training sets larger than the rescaled sample are subsampled using conditioned Latin Hypercube Sampling. Geographically restricted BGCs with fewer than required samples are upsampled using the SMOTE routine.   
+```{r resample training points}
+#Calculate sample number and rescale to semi-balance the training point set
+X2 <- X1#[-1]
+#X2 <- X2 %>% filter(BGC != "MHRFmmp_OR", BGC != "ESSFmwp_WA", BGC != "CMAwh")
+X2$BGC <- as.factor(X2$BGC)
+rownames(X2) <- X2$ID1
+countSubzone <- X2 %>% count(BGC)
+X2_OK <- countSubzone[(countSubzone$n >250 & countSubzone$n <1000),] # These units have OK samples
+X2_OK <- as.character(unique(X2_OK$BGC))
+X2_OK2 <- X2[X2$BGC %in% X2_OK,]
+X2_OK2 <- droplevels(X2_OK2)
+
+X2_Few <- countSubzone[countSubzone$n <= 250,]## these will need SMOTE additions
+X2_Few$logn <- log(X2_Few$n, 10)
+X2_Few$new <- as.integer (rescale(X2_Few$logn, to = c(50, 250), from = range(X2_Few$logn, na.rm = TRUE, finite = TRUE)))
+X2_Few <-  X2_Few %>% mutate(ratio = new/n)
+X2_Few <- droplevels(X2_Few)
+
+X2_LHC  <- countSubzone[countSubzone$n >= 1000,]### these will be reduced in number
+X2_LHC$logn <- log(X2_LHC$n, 10)
+X2_LHC$n <- as.integer (rescale(X2_LHC$logn, to = c(1000, 2000), from = range(X2_LHC$logn, na.rm = TRUE, finite = TRUE)))
+X2_LHC <- droplevels(X2_LHC)
+#countSubzone$sample <- ifelse(countSubzone$rs > countSubzone$n, countSubzone$n, countSubzone$rs )
+allUnits <- unique(X2$BGC)
+X2 <- na.omit(X2)
+X2$BGC <- as.factor(X2$BGC)
+# & (countSubzone$n >= 500),] ##these have enough samples
+
+#X2_LHC  <- countSubzone[countSubzone$n > countSubzone$rs,] ### these will be reduced in number
+#X2_LHC <- X2_OK
+OKUnits <- unique(X2_OK2$BGC)
+LHCUnits <- unique(X2_LHC$BGC)
+FewUnits <- unique(X2_Few$BGC)
+
+```
+
+Large BGCs are subsampled using a cLHS of the 35-variable space for each BGC removing training points down to that specified in the rescaling. 
+``` {r generate the cLHS, cache = TRUE}
+#LHCUnits = c("CCHun_CA", "BAFAun")
+# LHCUnits = c("BAFAun", "BGdh_OR", "CCHun_CA", "MGPmw_MT", "MGPdm")
+#BGC <- c("BSJPap")
+tic()
+worker.init <- function(){
+    Rcpp::sourceCpp("D:/GitHub/PEM_Methods_DevX/_functions/CppCLHS.cpp")
+}
+
+source("D:/GitHub/PEM_Methods_DevX/_functions/FastCLHS_R.R")
+Rcpp::sourceCpp("D:/GitHub/PEM_Methods_DevX/_functions/CppCLHS.cpp")
+
+cl <- makeCluster(detectCores()-2)
+clusterCall(cl,fun = worker.init)
+registerDoParallel(cl)
+
+LHCtraining <- foreach(BGC = LHCUnits, .combine = rbind, .noexport = c("c_cor","obj_fn"), .packages = c("Rcpp", "clhs", "caret", "dplyr", "foreach"),.errorhandling="remove") %dopar% { #
+  temp <- X2[(X2$BGC %in% BGC),]
+  temp <- temp[,-c(2)]
+  temp <- na.omit(temp)
+  temp$xx <- ""
+  temp <- droplevels(temp)
+  Num <- X2_LHC$n[(X2_LHC$BGC %in% BGC)]
+  nz <- nearZeroVar(temp, names=T) # remove near zero variance variables which cause cLHS to fail
+   samples <- clhs_fast(temp[, -which (names(temp) %in% nz)], #CMD with all zeros precluded sampling of coastal units
+                  size = Num,           # Test a range of sample sizes
+                  iter = 100,        # Arbitrarily large number of iterations of optimization procedure. Default=10,000 but a larger number may be used
+                  progress = FALSE, obj.limit = -Inf, eta = 1,
+                  simple = FALSE)
+
+  cLHS <- as.data.frame(samples$sampled_data)
+
+  cLHS <-  cLHS %>% dplyr::select(ID1)#,BGC)
+  cLHS$ID1 <- row.names(cLHS)###CHECK THIS
+  cLHS_Points <- merge (cLHS, X2,  by = "ID1")
+  cLHS_Points
+}
+
+toc()
+
+LHCtraining <- droplevels(LHCtraining)
+LHCtraining.list <- unique(LHCtraining$BGC)
+X2_LHCmissed <- X2_LHC[!(X2_LHC$BGC %in% LHCtraining.list),] #catch any units where the cLHS failed
+X2_LHCmissed <- droplevels(X2_LHCmissed)
+X2_LHCmissed
+countLHC <- LHCtraining %>% count(BGC) ###about 265
+runLHC <- unique(LHCtraining$BGC)
+LHC_missed <- LHCUnits[!LHCUnits %in% runLHC]
+#LHC_missed <- droplevels(LHC_missed)
+LHC2 <-as.data.frame(LHC_missed)
+LHC_toadd <- X2[X2$BGC %in% LHC_missed,]
+LHC_toadd <- droplevels(LHC_toadd)
+
+```
+
+ Under trained BGC units are upsampled using the SMOTE to add synthetic points up to the number specified in the resampling.
+``` {r add SMOTE units to those BGCs that are undersampled, cache = TRUE}
+X2_Smote <- X0temp
+X2_Smote <- X2[(X2$BGC %in% X2_Few$BGC),]
+X2_Smote <- X2_Smote %>% mutate_if(is.integer,as.numeric) #select(-Latitude, -Longitude, -Zone)
+X2_Smote$BGC  <- as.factor(X2_Smote$BGC)
+X2_Smote$BGCnum <- as.numeric(X2_Smote$BGC)
+X2_Smote <- droplevels(X2_Smote)
+X2.list <- unique(X2_Smote$BGC)
+countSmote <- X2_Smote %>% count(BGC)
+smote.num <- X2_Few %>% select(BGC, ratio)
+smote.list <- as.character(smote.num$BGC)
+#smote.list$BGC <- as.character(smote.list$BGC)
+#df <- smote.list %>% mutate(name = paste0(BGC, " = ", ratio))
+#BGC = "BGxh1"
+# smote.list <- as.pairlist(df$name)
+#X2_Smote2 <- SmoteClassif(BGC ~ ., X2_Smote, C.perc = list(BGxh1 = 120),  K = 5 )# creates full balanced data set
+# 
+#samples <- smotefamily::SMOTE(X2_Smote[,-c(1:2)], X2_Smote$BGCnum , #CMD with all zeros precluded sampling of coastal units
+#                 K = 2, dup_size = 2) 
+BGC="BGxh1"
+# ratio
+X2_Smote2 <- foreach(BGC = smote.list, .combine = rbind, .packages = c("smotefamily", "caret", "dplyr"),.errorhandling="remove") %do% { #
+  temp <- X2_Smote[(X2_Smote$BGC %in% BGC),]
+  temp <- temp[,-c(1)]
+  temp <- na.omit(temp)
+  #temp$xx <- ""
+  temp <- droplevels(temp)
+  Num <- as.numeric(smote.num$ratio[(smote.num$BGC %in% BGC)])
+  #nz <- nearZeroVar(temp, names=T)# remove near zero variance variables which cause cLHS to fail
+  #nz <- nz[nz != "BGCnum"]
+
+     #smote.exs <- function(data,tgt,N,k)   
+    samples <- smotefamily::SMOTE(temp[-1], temp$BGCnum, #CMD with all zeros precluded sampling of coastal units
+                  K = 2, dup_size = Num)# perc.under = 100, k=5,learner = NULL)           # ratio
+                         
+# 
+#  samples <- SMOTE(BGC ~ ., data = temp[, -which (names(temp) %in% nz)], #CMD with all zeros precluded sampling of coastal units
+#                  perc.over = Num, perc.under = 100, k=5,learner = NULL)           # ratio
+#                          
+  smote <- samples$data
+  smote$BGC <- BGC
+  smote$ID1 <- row.names(smote)
+  smote_points <- smote %>% dplyr::select(-BGCnum, -class)
+   smote_points <- smote_points %>% dplyr::select(ID1, BGC, everything())
+  smote_points
+}
+# X2_Mid <- countSubzone[countSubzone$n <= 500 & countSubzone$n >300,] # use orginal numbers for those >300
+# X2_Mid <- droplevels(X2_Mid)
+# count_mid <- X2_Mid  %>% count(BGC)
+# X2_OK2 <- X2[(X2$BGC %in% X2_Mid$BGC),]
+# X2_OK2 <- droplevels(X2_OK2)
+# X2_Smote3 <- X2_Smote2[!(X2_Smote2$BGC %in% X2_Mid$BGC),]
+# X2_Smote3 <- droplevels(X2_Smote3)
+# Smote_Final <- rbind (X2_Smote3, X2_OK2)
+count_LHC <- LHCtraining %>% count(BGC)
+count_OK <- X2_OK2 %>% count(BGC)
+count_smote <- X2_Smote2 %>% count(BGC)
+
+X2_1 <- rbind (LHCtraining, X2_Smote2 )
+X2_2 <- rbind (X2_OK2, X2_1)
+
+# X2_OK3 <- X2[(X2$BGC %in% X2_OK$BGC),]
+# X2_OK3 <- droplevels(X2_OK3)
+
+# LHC_Final3 <- rbind (LHC_Final2, X2_OK3)
+# LHC_Final3 <- droplevels(LHC_Final3)
+plyr::count(X2_2, vars = "BGC")
+X2_final <- droplevels(X2_2)
+countX <- X2_final %>% count(BGC)
+#write.csv(X2_final, "./cLHS/WNA_Training_259_VARS_new.csv", row.names = FALSE)
+#X2_final <-  fread("./cLHS/WNA_Training_9_VARS.csv", data.table = FALSE)
+
+```
+
+
+# ```{r find and create interactions}
+# X0 <- fread("./inputs/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+# X0[X0 == -9999] <- NA
+# X0 <- X0[complete.cases(X0),]
+# X0 <- addVars(X0)
+# 
+# X0 <- X0[,c("BGC",vs8), with = F] 
+# X0[,target := grepl("ICH",BGC)][,target := ifelse(target,1,0)]
+# temp <- X0[,.(target,CMD,MSP)][,melt(.SD,id.vars = "target")][,variable := as.factor(variable)]
+# ggplot(temp, aes(x = value, y = target, col = variable)) +
+#   geom_point()
+# 
+# ##logistic regressions to test specific interactions
+# mod1 <- glm(target ~ CMD + MSP, data = X0, family = "binomial")
+# anova(mod1, test = "Chisq")
+# mod2 <- glm(target ~ CMD + MSP + CMD:MSP, data = X0, family = "binomial")
+# anova(mod2, test = "Chisq")
+# 
+# anova(mod1,mod2,test = "LRT")##test decrease in residual sums of squares
+# 
+# mod1 <- glm(target ~ CMD + DD5_sp, data = X0, family = "binomial")
+# anova(mod1, test = "Chisq")
+# mod2 <- glm(target ~ CMD + DD5_sp + CMD:DD5_sp, data = X0, family = "binomial")
+# anova(mod2, test = "Chisq")
+# 
+# anova(mod1,mod2,test = "LRT")
+# 
+# mod1 <- glm(target ~ CMD + MSP + DD5_sp, data = X0, family = "binomial")
+# anova(mod1, test = "Chisq")
+# mod2 <- glm(target ~ CMD + MSP + DD5_sp + CMD:MSP + CMD:DD5_sp + MSP:DD5_sp + CMD:MSP:DD5_sp, data = X0, family = "binomial")
+# anova(mod2, test = "Chisq")
+# 
+# anova(mod1,mod2,test = "LRT")##test decrease in residual sums of squares
+# 
+# ###now trying some stuff from the Kuhn book
+# library(glinternet)
+# xmat <- as.matrix(X0[,!c("BGC","target")])
+# test <- glinternet(X = xmat, Y = X0$target, numLevels = rep(1,35), family = "binomial")
+
+#```
+```{r upsample or downsample BGCs}
+# 
+# X0 <- XAll
+# count_tp <- X0 %>% dplyr::count(BGC)
+# X0[, Num := .N, by = .(BGC)]
+# 
+# X0_OK <- as.data.table(X0[Num <= 1000])
+# X0[, LogNum := log(Num, base = 10)]
+# X0[Num <= 100, New := scales::rescale(LogNum, to = c(50,100))]
+# X0[Num >= 1000, New := scales::rescale(LogNum, to = c(1000, 2000))]
+# X0[, New := as.integer(New)]
+# 
+# X0temp <- as.data.table(X0[Num >= 1000, ])
+# X0temp$BGC <- as.factor(X0temp$BGC)
+# cl <- makeCluster(detectCores() - 2)
+# registerDoParallel(cl)
+# 
+# X0_big <- foreach(
+# unit = unique(X0temp$BGC),
+# .combine = rbind,
+# .packages = c("clhs", "data.table")
+# ) %dopar% {
+# cat("Processing", unit, "\n")
+# temp <- X0temp[BGC == unit, ]
+# num <- temp$New[1]
+# ##nz <- nearZeroVar(temp, names=T) ##do we need this?
+# lhs <-
+# clhs(
+# temp[, !c("BGC", "Num", "LogNum", "New")],
+# size = (num - 2),
+# iter = 1000,
+# use.cpp = T,
+# simple = F
+# )
+# res <- lhs$sampled_data
+# res$BGC <- unit
+# res
+# }
+# 
+# ###SMOTE process for uncommon units
+# 
+# X0temp <- as.data.table(X0[Num <= 100 & Num >2,]) #%>% filter (!(BGC == "BGxh1"))#"ESSFxh_WA" | BGC == "IMAun_UT" | BGC == "MHun" ))
+# X0_small <- X0temp %>% select(-New, -Num, -LogNum) %>% droplevels()
+# 
+#  foreach(unit = unique(X0temp$BGC), .combine = rbind, .packages = c("clhs","data.table")) %do% {
+#   cat("Processing",unit,"\n")
+#   temp <- X0temp[BGC == unit,] %>% mutate_if(is.integer,as.numeric)
+#   temp$BGC <- as.numeric(as.factor(temp$BGC))
+#   num <- (temp$New[1])/temp$Num[1]
+#   temp <- as.data.table(temp)
+#   tempSMOTE <- smotefamily::SMOTE(temp[,!c("BGC","Num","LogNum","New")],
+#                              temp$BGC, K = 5, dup_size = ceiling(num))
+#   newCases <- temp$New[1] - temp$Num[1]
+#   synData <- tempSMOTE$syn_data
+#   synData <- synData[sample(1:nrow(synData), size = newCases, replace = F),]
+#   synData$class <- NULL
+#   synData$BGC <- unit
+#   synData
+# }
+# 
+# X0_OK[, Num := NULL]
+# #X0_OK<- X0_OK %>% dplyr::select(-New, -LogNum, -Num)
+# XAll <- rbind(X0_OK, X0_big, X0_small)  %>% filter(!BGC == "Null")
+# XAll.loc <- left_join(XAll, IDVars)
+# XAll <- as.data.table(XAll)
+# 
+# XAll[, BGC := as.factor(BGC)]
+# XAll$BGC  <- droplevels(XAll$BGC)
+# 
+# count_tp <- XAll %>% dplyr::count(BGC)
+#  TrainingPoints <- left_join (XAll, IDVars)
+# # 
+#  fwrite(TrainingPoints, "./outputs/FinalTrainingSet.csv")
+
+```
+
+
+
+```{r remove outliers1}
+# XAll <- X0
+# ##identify outlier values for each variable in each BGC and set to NA.
+# ##first create a dummy composite variable of BGC+Variable
+# outs <- function(dat) {
+# Q <- quantile(dat$vals, probs = c(.25, .75), na.rm = TRUE)
+# iqr <- IQR(dat$vals)
+# up <-  Q[2] + 1.5 * iqr # Upper Range
+# low <- Q[1] - 1.5 * iqr # Lower Range
+# dat$vals <- ifelse(dat$vals > up, NA,
+# ifelse(dat$vals < low, NA, dat$vals))
+# dat
+# }
+# 
+# outlier.var <- c("DD5", "CMD.total", 'PPT_JAS', 'MCMT', 'PPT_MJ')
+# XAll3 <- pivot_longer (XAll,!c(BGC, ID1), names_to = "vars", values_to = "vals") %>% unite(BGCvar, c("BGC", "vars"), remove = FALSE) #%>% mutate_if(is.character, as.factor)
+# XAll3.1 <- XAll3 %>% filter(!vars %in% outlier.var)
+# XAll3.2 <- XAll3 %>% filter(vars %in% outlier.var)
+# Xreduce <- XAll3.2 %>% group_by(BGCvar) %>%  do(outs(.))
+# XAll3 <- rbind(XAll3.1, Xreduce)
+# IDs <- XAll3 %>% select(ID1, BGC) %>% distinct(ID1, .keep_all = TRUE)
+# XAll4 <- pivot_wider(XAll3, id_cols = ID1, names_from = vars, values_from = vals)
+# XAll5 <- left_join(IDs, XAll4) %>% na_if(NA)
+# XAll <- XAll5 %>% na.omit()  %>% mutate_if(is.character, as.factor) %>% mutate_if(is.integer, as.numeric)
+# XAll$ID1 <- as.integer(XAll$ID1)# %>% dplyr::select(BGC, AHM, CMD.total, MWMT)
+# count_tp <- XAll %>% dplyr::count(BGC)
+# 
+# TrainingPoints <- left_join (XAll, IDVars)
+# ###repeat removal of outliers
+# outlier.var <- c("DD5", "CMD.total", 'PPT_JAS', 'MCMT', 'PPT_MJ')
+# XAll3 <- pivot_longer (XAll,!c(BGC, ID1), names_to = "vars", values_to = "vals") %>% unite(BGCvar, c("BGC", "vars"), remove = FALSE) #%>% mutate_if(is.character, as.factor)
+# XAll3.1 <- XAll3 %>% filter(!vars %in% outlier.var)
+# XAll3.2 <- XAll3 %>% filter(vars %in% outlier.var)
+# Xreduce <- XAll3.2 %>% group_by(BGCvar) %>%  do(outs(.))
+# XAll3 <- rbind(XAll3.1, Xreduce)
+# IDs <- XAll3 %>% select(ID1, BGC) %>% distinct(ID1, .keep_all = TRUE)
+# XAll4 <- pivot_wider(XAll3, id_cols = ID1, names_from = vars, values_from = vals)
+# XAll5 <- left_join(IDs, XAll4) %>% na_if(NA)
+# XAll <- XAll5 %>% na.omit()  %>% mutate_if(is.character, as.factor) %>% mutate_if(is.integer, as.numeric)
+# XAll$ID1 <- as.integer(XAll$ID1)# %>% dplyr::select(BGC, AHM, CMD.total, MWMT)
+# count_tp <- XAll %>% dplyr::count(BGC)
+# 
+# TrainingPoints <- left_join (XAll, IDVars)
+# 
+# fwrite(TrainingPoints, "./outputs/FinalTrainingSet.csv")
+```
