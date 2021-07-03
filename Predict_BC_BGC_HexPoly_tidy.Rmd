@@ -11,10 +11,8 @@ output:
 knitr::opts_chunk$set(echo = FALSE, message = FALSE)
 require (smotefamily)
 #require (UBL) ## UBL conflicts with another package if loaded after a package in the list below
-require(tcltk)
+
 require(data.table)
-library(randtoolbox)
-library(clhs)
 library(foreign)
 library(ggplot2)
 library(raster)
@@ -46,14 +44,14 @@ require(tidymodels)
 #data.dir = "./inputs/"
 #dir.create("cLHS")
 
-source("../Build_USA_BEC/_functions/AddVars.R")
+source("./_functions/AddVars.R")
 
 ```
 
 Points from a 8km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
 
 ```{r read in Hex Grid Climate Data}
-region <- "RTO"
+region <- "DND"
 # bring in grid data with climate attributes
 #  X <- fread(paste0("./inputs/", region,"_400m_HexPts_Normal_1961_1990MSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in historic period
 # hexpts <- X %>% select(ID1, ID2, Latitude, Longitude, Elevation)
@@ -61,7 +59,7 @@ region <- "RTO"
 # X1 <- addVars(X)
 
 ###read in the current normal period 1991-2020
-Y <- fread(paste0("./inputs/", region, "_400m_HexPts_Normal_1991_2020MSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)
+Y <- fread(paste0("./inputs/", region, "_400m_HexPts_Normal_1991_2020MSY.csv"))
 Y <- addVars(Y)
 
 #read in future ensemble period
@@ -79,21 +77,21 @@ Y <- addVars(Y)
 
 ### load ranger  model
 
-load("./BGC_models/WNAv12_Subzone_13_Var_ranger_30June21.RData")
+load("./BGC_models/WNAv12_Subzone_13_Var_ranger_30June21.Rdata")
 BGCmodel <- BGCmodel2
 model_vars <- as.data.frame(BGCmodel$variable.importance) %>% tibble::rownames_to_column()
 
- covcount <- nrow(model_vars)
+covcount <- nrow(model_vars)
 # X2 <- X %>% dplyr::select(ID1, model_vars [,1])# %>% drop_na(BGC)
 # timeperiod = "1961-1990"
-
+idLocs <- Y[,.(ID1,Latitude,Longitude)] 
 Y <- Y %>% dplyr::select(ID1, model_vars [,1])
 Y1 <- data.table(Y)
 Y2 <- Y1[,lapply(.SD,mean),
                      by = .(ID1),]
 #--------unremark for 1991-2019 period
 X2 <- Y2 ## use this line if wanting to run the modern climate change period
-timeperiod = "1991-2019"
+timeperiod = "1991-2020"
 
 # XX <- X %>% dplyr::select(ID1, ID2)
 # Ycheck <- left_join(XX, Y1) %>% dplyr::select(ID1, ID2, everything())
@@ -138,6 +136,25 @@ X1.pred <- cbind(X2, BGC) %>% select(ID1, BGC)
 X1.pred$BGC <-  fct_explicit_na(X1.pred$BGC , na_level = "(None)")
 X1.pred$ID1 <- as.character(X1.pred$ID1)
 
+```
+
+```{r join bec}
+bgc <- st_read("~/CommonTables/BC_BGCv12.gpkg")
+idLocs2 <- st_as_sf(idLocs, coords = c("Longitude","Latitude"), crs = 4326, agr = "constant")
+idLocs2 <- st_transform(idLocs2, 3005)
+bgc <- st_zm(bgc)
+bgc <- st_cast(bgc,"MULTIPOLYGON")
+bgcID <- st_join(idLocs2,bgc,left = T)
+bgcID <- as.data.table(st_drop_geometry(bgcID))
+BGC <- as.data.table(BGC)
+setnames(BGC, c("ID1","BGC.pred"))
+BGC[,ID1 := as.integer(ID1)]
+BGC[bgcID, BGC := i.BGC, on = "ID1"]
+BGC[,Change := paste0(BGC,"-",BGC.pred)]
+allChanges <- table(BGC$Change)
+sort(allChanges)
+
+##lets try SBSdk -> IDFdk1
 ```
 
 # Attribute hex grid with subzone/variant call
