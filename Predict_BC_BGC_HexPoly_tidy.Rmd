@@ -168,19 +168,19 @@ datChange <- Y[ID1 %in% changeIDs,]
 datChange <- melt(datChange,id.vars = "ID1", variable.name = "ModVar")
 datChange[,Unit := "AOIChange"]
 datChange[,ID1 := NULL]
-modVars <- c("Period","ID2", model_vars$rowname)
+modVars <- c("ID2", model_vars$rowname)
 
-datFull <- fread("~/BGC-Climate-Summaries/ClimateBC_Out/BC_v12_Points_1901-2020MSY.csv")
-datFull <- datFull[Year > 1959 & ID2 %chin% c(origUnit,changeUnit),]
-gc()
-datFull[,`:=`(Latitude = NULL,Longitude = NULL,Elevation = NULL)]
-datFull[,Period := fifelse(Year > 1990,"Current","Historic")]
-datAvg <- datFull[,lapply(.SD,mean), by = .(Period,ID2,ID1), .SDcols = -"Year"]
-datAvg <- addVars(datAvg)
+# datFull <- fread("~/BGC-Climate-Summaries/ClimateBC_Out/BC_v12_Points_1901-2020MSY.csv")
+# datFull <- datFull[Year > 1960 & Year < 1991,]
+#datFull <- datFull[Year > 1959 & ID2 %chin% c(origUnit,changeUnit),]
+#datFull[,`:=`(Latitude = NULL,Longitude = NULL,Elevation = NULL)]
+#datFull[,Period := fifelse(Year > 1990,"Current","Historic")]
+#datAvg <- datFull[,lapply(.SD,mean), by = .(ID2,ID1), .SDcols = -"Year"]
+#datAvg <- addVars(datAvg)
+datAvg <- fread("./BC_BGCv12_Normal6190.csv")
 datAvg <- datAvg[,..modVars]
-datAvg <- melt(datAvg, id.vars = c("Period","ID2"),variable.name = "ModVar")
-datAvg <- datAvg[Period == "Historic",]
-datAvg[,Period := NULL]
+datAvg <- melt(datAvg, id.vars = c("ID2"),variable.name = "ModVar")
+datAvg <- datAvg[value > -1000,]
 setnames(datAvg, old = "ID2", new = "Unit")
 
 datAll <- rbind(datAvg,datChange)
