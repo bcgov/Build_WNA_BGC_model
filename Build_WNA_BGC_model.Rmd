@@ -173,7 +173,7 @@ vs34 <- c("DD5", "DD_delayed",   #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduc
 vs35 <- c("DD5", "DD_delayed",   #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduce list to omit non-biological and redundant variables
              #"Eref_sp", #"TD",
          # "EMT_threshold", #"MCMT",# EMT",  #"Tmin_sp",  #Tmin_wt",
-          "MSP", # PPT_MJ", "PPT_JAS", #  "PPT_sp","PPT_sm","MSP",
+          "PPT_MJ", "PPT_JAS", # PPT_MJ", "PPT_JAS", #  "PPT_sp","PPT_sm","MSP",
          "CMD.total", "CMI", "CMDMax", #"CMD","CMD_at",,"CMDMax"
          "SHM", "AHM", # "CMD.def",
               "EXT",#"Tmax_sp","Tmax_sm",
@@ -555,7 +555,7 @@ X_balanced$BGC <- as.factor(X_balanced$BGC)
 count_tp <- X_balanced %>% dplyr::count(BGC)
 #XAll <- X_balanced[,order(colnames(X_balanced))] %>% dplyr::select(ID1, BGC, CMD.total, DD5_sp,  PPT_JAS, bFFP, MCMT,  everything())# put the variable to be overweighted at the front to make weighting list easier
 #XAll <- X_balanced[,order(colnames(X_balanced))] %>% dplyr::select(ID1, BGC, CMD.total, DD5, MSP, FFP, EMT_threshold, MCMT, DD_delayed, everything())# DD_delayed,
-XAll <- X_balanced[,order(colnames(X_balanced))] %>% dplyr::select(ID1, BGC, DD_delayed, MSP,   CMDMax, DD5, everything())
+XAll <- X_balanced[,order(colnames(X_balanced))] %>% dplyr::select(ID1, BGC, DD_delayed,  CMDMax, DD5, everything())
 # BGC_recipe <- recipe(BGC ~ .,  data = XAll) %>%
 #   update_role(ID1, new_role = "ID") %>% 
 #   step_center(all_predictors()) %>%
@@ -566,7 +566,7 @@ vs = XAll %>% select(-ID1, -BGC) %>% colnames()
 ##probability of being selected with each mtry
 var.weight <- as.data.frame(vs) %>% mutate(wt = "")
 #var.weight$wt <- c(.3, .3, .7, .3, .1, .3, .3, .3, .3, .3, 0, .3, .3, .3, .5, .7, .3, .5, .3)
-var.weight$wt <- c(.01, .1, .1, .1, .1, .1, .1, .1, .1, .1, .1)
+var.weight$wt <- c(.05, .1, .1, .1, .1, .1, .1, .1, .1, .1, .1, .1)
 #var.weight$wt <- c(.1, .1, .1, .1, .1, .1, .1, .1, .1, .1, .1)
 # , .1# .1,
    #               .1, .1, .1, .1, .1, .1, .1, .1, .1)##for 19
