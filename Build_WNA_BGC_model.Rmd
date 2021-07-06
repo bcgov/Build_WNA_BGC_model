@@ -170,7 +170,15 @@ vs34 <- c("DD5", "DD_delayed",   #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduc
               "EXT",#"Tmax_sp","Tmax_sm",
            "NFFD", #"FFP", "NFFD_sp", 
           "PAS")
-
+vs35 <- c("DD5", "DD_delayed",   #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduce list to omit non-biological and redundant variables
+             #"Eref_sp", #"TD",
+         # "EMT_threshold", #"MCMT",# EMT",  #"Tmin_sp",  #Tmin_wt",
+          "MSP", # PPT_MJ", "PPT_JAS", #  "PPT_sp","PPT_sm","MSP",
+         "CMD.total", "CMI", "CMDMax", #"CMD","CMD_at",,"CMDMax"
+         "SHM", "AHM", # "CMD.def",
+              "EXT",#"Tmax_sp","Tmax_sm",
+            "bFFP", #"FFP",  "NFFD","NFFD_sp",
+          "PAS")
 
 ```
 
@@ -203,7 +211,7 @@ X0 <- addVars(X0)
 IDVars <- X0[, .(ID1, Latitude, Longitude)]
 
 X0 <-
-  X0[, c("ID1", "BGC", vs33), with = F] 
+  X0[, c("ID1", "BGC", vs35), with = F] 
 
 
 
@@ -230,7 +238,7 @@ The preprocessing function from the caret package was used to identify variables
 # # summarize the correlation matrix
 # #print(correlationMatrix)
 # # find attributes that are highly corrected (ideally >0.75)
-  highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.90, verbose = TRUE, names = TRUE) ## review for removal of highly correlated vars
+  highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.9, verbose = TRUE, names = TRUE) ## review for removal of highly correlated vars
    highlyCorrelated
   #X0 <- X0 %>% dplyr::select(-c(highlyCorrelated))%>% drop_na(BGC)
 
@@ -247,7 +255,7 @@ The preprocessing function from the caret package was used to identify variables
 ```
 
 ```{r remove poor BGCs}
-badbgs <- c("BWBSvk","ESSFdc3" ,"MSdm3", "ICHmc1a", "MHun", "SBSun", "ESSFun", "SWBvk")#, "ESSFab""CWHws2", "CWHwm", "CWHms1" , 
+badbgs <- c("BWBSvk", "ICHmc1a", "MHun", "SBSun", "ESSFun", "SWBvk","MSdm3","ESSFdc3" )#, "ESSFab""CWHws2", "CWHwm", "CWHms1" , 
 X0 <- X0 %>%  filter(!BGC %in% badbgs)
 BGCunits <- X0 %>% arrange(BGC) %>% select(BGC)
 BGCunits <- unique(BGCunits$BGC)
@@ -547,7 +555,7 @@ X_balanced$BGC <- as.factor(X_balanced$BGC)
 count_tp <- X_balanced %>% dplyr::count(BGC)
 #XAll <- X_balanced[,order(colnames(X_balanced))] %>% dplyr::select(ID1, BGC, CMD.total, DD5_sp,  PPT_JAS, bFFP, MCMT,  everything())# put the variable to be overweighted at the front to make weighting list easier
 #XAll <- X_balanced[,order(colnames(X_balanced))] %>% dplyr::select(ID1, BGC, CMD.total, DD5, MSP, FFP, EMT_threshold, MCMT, DD_delayed, everything())# DD_delayed,
-XAll <- X_balanced[,order(colnames(X_balanced))] %>% dplyr::select(ID1, BGC, MSP, DD_delayed, NFFD,  CMDMax, DD5, everything())
+XAll <- X_balanced[,order(colnames(X_balanced))] %>% dplyr::select(ID1, BGC, DD_delayed, MSP,   CMDMax, DD5, everything())
 # BGC_recipe <- recipe(BGC ~ .,  data = XAll) %>%
 #   update_role(ID1, new_role = "ID") %>% 
 #   step_center(all_predictors()) %>%
@@ -558,7 +566,7 @@ vs = XAll %>% select(-ID1, -BGC) %>% colnames()
 ##probability of being selected with each mtry
 var.weight <- as.data.frame(vs) %>% mutate(wt = "")
 #var.weight$wt <- c(.3, .3, .7, .3, .1, .3, .3, .3, .3, .3, 0, .3, .3, .3, .5, .7, .3, .5, .3)
-var.weight$wt <- c(.1, 0.05, .1, .1, .2, .1, .1, .1, .1, .1, .1, .1)
+var.weight$wt <- c(.01, .1, .1, .1, .1, .1, .1, .1, .1, .1, .1)
 #var.weight$wt <- c(.1, .1, .1, .1, .1, .1, .1, .1, .1, .1, .1)
 # , .1# .1,
    #               .1, .1, .1, .1, .1, .1, .1, .1, .1)##for 19
@@ -588,7 +596,7 @@ DF <- as.data.frame(BGCmodel2$variable.importance) %>% tibble::rownames_to_colum
 covcount <- nrow(DF)
 
  
-save(BGCmodel2, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_ranger_30June21_3.Rdata"))
+save(BGCmodel2, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_ranger_6July21.Rdata"))
 test <- treeInfo(BGCmodel2,1)
 
  ggplot(DF, aes(x=reorder(w,v), y=v,fill=v))+ 
