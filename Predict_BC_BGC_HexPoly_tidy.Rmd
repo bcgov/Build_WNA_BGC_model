@@ -53,7 +53,7 @@ cloud_dir <- "F:/OneDrive - Government of BC/CCISSv12/"
 Points from a 8km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
 
 ```{r read in Hex Grid Climate Data}
-region <- "RKB"
+region <- "RCB"
 # bring in grid data with climate attributes
 #  X <- fread(paste0("./inputs/", region,"_400m_HexPts_Normal_1961_1990MSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in historic period
 # hexpts <- X %>% select(ID1, ID2, Latitude, Longitude, Elevation)
@@ -79,7 +79,7 @@ Y <- addVars(Y)
 
 ### load ranger  model
 
-load("./BGC_models/WNAv12_Subzone_11_Var_ranger_6July21.Rdata")
+load("./BGC_models/WNAv12_Subzone_12_Var_ranger_6July21.Rdata")
 BGCmodel <- BGCmodel2
 model_vars <- as.data.frame(BGCmodel$variable.importance) %>% tibble::rownames_to_column()
 
@@ -140,65 +140,6 @@ X1.pred$ID1 <- as.character(X1.pred$ID1)
 
 ```
 
-### Kiri Variable investigation
-
-```{r join bec}
-#bgc <- st_read("~/CommonTables/BC_BGCv12.gpkg")
-bgc <- st_read(paste0(cloud_dir, "BC_BGCv12.gpkg"))
-idLocs2 <- st_as_sf(idLocs, coords = c("Longitude","Latitude"), crs = 4326, agr = "constant")
-idLocs2 <- st_transform(idLocs2, 3005)
-bgc <- st_zm(bgc)
-bgc <- st_cast(bgc,"MULTIPOLYGON")
-bgcID <- st_join(idLocs2,bgc,left = T)
-bgcID <- as.data.table(st_drop_geometry(bgcID))
-BGC <- as.data.table(BGC)
-setnames(BGC, c("ID1","BGC.pred"))
-BGC[,ID1 := as.integer(ID1)]
-BGC[bgcID, BGC := i.BGC, on = "ID1"]
-BGC[,Change := paste0(BGC,"-",BGC.pred)]
-allChanges <- table(BGC$Change)
-sort(allChanges)
-
-##lets try SBSdk -> IDFdk1
-```
-
-```{r change stats,fig.height=11}
-origUnit <- "SBSmc2"
-changeUnit <- "ICHmc2"
-
-changeIDs <- BGC[BGC == origUnit & BGC.pred == changeUnit,ID1]
-datChange <- Y[ID1 %in% changeIDs,]
-datChange <- melt(datChange,id.vars = "ID1", variable.name = "ModVar")
-datChange[,Unit := "AOIChange"]
-datChange[,ID1 := NULL]
-modVars <- c("ID2", model_vars$rowname)
-
-# datFull <- fread("~/BGC-Climate-Summaries/ClimateBC_Out/BC_v12_Points_1901-2020MSY.csv")
-# datFull <- datFull[Year > 1960 & Year < 1991,]
-#datFull <- datFull[Year > 1959 & ID2 %chin% c(origUnit,changeUnit),]
-#datFull[,`:=`(Latitude = NULL,Longitude = NULL,Elevation = NULL)]
-#datFull[,Period := fifelse(Year > 1990,"Current","Historic")]
-#datAvg <- datFull[,lapply(.SD,mean), by = .(ID2,ID1), .SDcols = -"Year"]
-#datAvg <- addVars(datAvg)
-datAvg <- fread("./BC_BGCv12_Normal6190.csv")
-datAvg <- datAvg[,..modVars]
-datAvg <- melt(datAvg, id.vars = c("ID2"),variable.name = "ModVar")
-datAvg <- datAvg[value > -1000,]
-setnames(datAvg, old = "ID2", new = "Unit")
-
-datAll <- rbind(datAvg,datChange)
-datAll[,Unit := factor(Unit, levels = c(origUnit,"AOIChange",changeUnit))]
-datAll <- datAll[value < 2000 & value > -500,]
-
-# temp <- datAll[ModVar == "DD_delayed",]
-# temp[,Unit := factor(Unit, levels = c(origUnit,"AOIChange",changeUnit))]
-
-ggplot(datAll,aes(x = Unit, y = value)) +
-  geom_boxplot(outlier.shape = NA) +
-  facet_wrap(. ~ ModVar, ncol = 3,scales = "free_y")
-```
-
-# End Kiri
 
 # Attribute hex grid with subzone/variant call
 ```{r link to hex polygon layer}
@@ -234,6 +175,65 @@ st_write(t2, dsn = paste0("./outputs/", covcount, "_", "Subzone_Map_hex400_disso
                                                                                                        
 
 ```
+### Kiri Variable investigation
+
+```{r join bec}
+#bgc <- st_read("~/CommonTables/BC_BGCv12.gpkg")
+bgc <- st_read(paste0(cloud_dir, "BC_BGCv12.gpkg"))
+idLocs2 <- st_as_sf(idLocs, coords = c("Longitude","Latitude"), crs = 4326, agr = "constant")
+idLocs2 <- st_transform(idLocs2, 3005)
+bgc <- st_zm(bgc)
+bgc <- st_cast(bgc,"MULTIPOLYGON")
+bgcID <- st_join(idLocs2,bgc,left = T)
+bgcID <- as.data.table(st_drop_geometry(bgcID))
+BGC <- as.data.table(BGC)
+setnames(BGC, c("ID1","BGC.pred"))
+BGC[,ID1 := as.integer(ID1)]
+BGC[bgcID, BGC := i.BGC, on = "ID1"]
+BGC[,Change := paste0(BGC,"-",BGC.pred)]
+allChanges <- table(BGC$Change)
+sort(allChanges)
+
+##lets try SBSdk -> IDFdk1
+```
+
+```{r change stats,fig.height=11}
+origUnit <- "SBPSmk"
+changeUnit <- "BWBSmw"
+
+changeIDs <- BGC[BGC == origUnit & BGC.pred == changeUnit,ID1]
+datChange <- Y[ID1 %in% changeIDs,]
+datChange <- melt(datChange,id.vars = "ID1", variable.name = "ModVar")
+datChange[,Unit := "AOIChange"]
+datChange[,ID1 := NULL]
+modVars <- c("ID2", model_vars$rowname)
+
+# datFull <- fread("~/BGC-Climate-Summaries/ClimateBC_Out/BC_v12_Points_1901-2020MSY.csv")
+# datFull <- datFull[Year > 1960 & Year < 1991,]
+#datFull <- datFull[Year > 1959 & ID2 %chin% c(origUnit,changeUnit),]
+#datFull[,`:=`(Latitude = NULL,Longitude = NULL,Elevation = NULL)]
+#datFull[,Period := fifelse(Year > 1990,"Current","Historic")]
+#datAvg <- datFull[,lapply(.SD,mean), by = .(ID2,ID1), .SDcols = -"Year"]
+#datAvg <- addVars(datAvg)
+datAvg <- fread(paste0(cloud_dir, "BC_BGCv12_Normal6190.csv"))
+datAvg <- datAvg[,..modVars]
+datAvg <- melt(datAvg, id.vars = c("ID2"),variable.name = "ModVar")
+datAvg <- datAvg[value > -1000,]
+setnames(datAvg, old = "ID2", new = "Unit")
+
+datAll <- rbind(datAvg,datChange)
+datAll[,Unit := factor(Unit, levels = c(origUnit,"AOIChange",changeUnit))]
+datAll <- datAll[value < 2000 & value > -500,]
+
+# temp <- datAll[ModVar == "DD_delayed",]
+# temp[,Unit := factor(Unit, levels = c(origUnit,"AOIChange",changeUnit))]
+
+ggplot(datAll,aes(x = Unit, y = value)) +
+  geom_boxplot(outlier.shape = NA) +
+  facet_wrap(. ~ ModVar, ncol = 3,scales = "free_y")
+```
+
+# End Kiri
 
 
 ```{r clean crumbs}
