@@ -52,7 +52,7 @@ require(DescTools)
 source("../Build_USA_BEC/_functions/AddVars.R")
 source("../Build_USA_BEC/_functions/removeOutlier.R")
 source("../Build_USA_BEC/_functions/acc_metrix.R")
-cloud_dir <- "F:/OneDrive - Government of BC/CCISSv12/"
+cloud_dir <- "F:/OneDrive - Government of BC/CCISSv12/latest_CCISS_tool_files/"
 
 ```
 # General process
@@ -68,7 +68,8 @@ Points from a 4km hex grid of western north america are generated in R and submi
 
 ```{r load and prep training data}
 #X0 <- fread("./inputs/training_data/WNAv12_2km_Hex_Pts_Normal_1961_1990MSY_3.csv")
-X0 <- fread("D:/CommonTables/HexGrids/WNA_4k_HexPts_BGCv12_Normal_1961_1990MSY_reduced.csv") %>% dplyr::filter(!(BGC == "MHmm2" & Latitude > 55)) ##ClimateNA data
+X0 <- fread("D:/CommonTables/HexGrids/WNA_4k_HexPts_BGCv12_Normal_1961_1990MSY_reduced6Sept2021.csv") %>% dplyr::filter(!(BGC == "MHmm2" & Latitude > 55)) ##ClimateNA data
+IDVars <- X0[, .(ID1, Latitude, Longitude)]
 #X0.1 <- fread("D:/CommonTables/HexGrids/BC_4k_HexPts_BGC_NoSampleRemoved_Normal_1961_1990MSY.csv") ##Same set of points by ClimateBC
 
  # X0.1 <- fread("D:/CommonTables/HexGrids/WNA_4k_HexPts_BGC_NoSampleRemoved.csv") %>% dplyr::rename (BGC = BGC_2) %>%  select(ID1, BGC, Latitude, Longitude,Elevation)
@@ -119,8 +120,8 @@ badvars <- "TD"
 vs2 <- vs2[!vs2 %in% badvars] ## no monthly vars and others by choice
 vs3 <- c("MAT","MCMT","MWMT","TD","MAP","MSP","AHM","SHM","DD_0","DD5","NFFD","bFFP","eFFP",
          "PAS","EMT","Eref","CMD","Tave_wt","Tave_sm","PPT_wt","PPT_sm")## biological variables from databasin
-vs5 <- read.csv("./outputs/Model_16Vars.csv") ### from original model
-vs5 <- vs5$x
+#vs5 <- read.csv("./outputs/Model_16Vars.csv") ### from original model
+#vs5 <- vs5$x
 vs8 <- c("Tave_at","MWMT", "DD5_at",   "DD5_sm",   "DD5_sp", "DD5_wt", # 35 variable from paper
             "Eref_sm",   "Eref_sp",
          "Tmin_wt", "MCMT","Tmin_sp",
@@ -170,16 +171,25 @@ vs34 <- c("DD5", "DD_delayed",   #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduc
               "EXT",#"Tmax_sp","Tmax_sm",
            "NFFD", #"FFP", "NFFD_sp", 
           "PAS")
-vs35 <- c("DD5", "DD_delayed",   #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduce list to omit non-biological and redundant variables
+vs_final <- c("DD5", "DD_delayed",   #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduce list to omit non-biological and redundant variables
              #"Eref_sp", #"TD",
          # "EMT_threshold", #"MCMT",# EMT",  #"Tmin_sp",  #Tmin_wt",
           "PPT_MJ", "PPT_JAS", # PPT_MJ", "PPT_JAS", #  "PPT_sp","PPT_sm","MSP",
          "CMD.total", "CMI", "CMDMax", #"CMD","CMD_at",,"CMDMax"
          "SHM", "AHM", # "CMD.def",
-              "EXT",#"Tmax_sp","Tmax_sm",
-            "bFFP", #"FFP",  "NFFD","NFFD_sp",
-          "PAS")
-
+              #"EXT",#"Tmax_sp","Tmax_sm",
+            "NFFD", #"FFP",  "NFFD","NFFD_sp",
+          "PAS")#,
+         #"Eref_at", "CMI_sm")
+vs_test <- c("DD5", "DD_delayed",   #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduce list to omit non-biological and redundant variables
+             #"Eref_sp", #"TD",
+         # "EMT_threshold", #"MCMT",# EMT",  #"Tmin_sp",  #Tmin_wt",
+          "PPT_MJ", "PPT_JAS", # PPT_MJ", "PPT_JAS", #  "PPT_sp","PPT_sm","MSP",
+         "CMD.total", "CMI", "CMI_sm", #CMDMax", #"CMD","CMD_at",,"CMDMax"
+         "SHM", "AHM", # "CMD.def",
+              #"EXT",#"Tmax_sp","Tmax_sm",
+            "NFFD", #"FFP",  "NFFD","NFFD_sp",
+          "PAS", "MAT")
 ```
 
 
@@ -207,9 +217,9 @@ vs35 <- c("DD5", "DD_delayed",   #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduc
 
 ```{r reduce variables}
 X0 <- addVars(X0)
-
-IDVars <- X0[, .(ID1, Latitude, Longitude)]
-
+X_test <- X0[, c("ID1", "BGC", vs_final), with = F] 
+X_test <- left_join(X_test, IDVars)
+fwrite(X_test, "./outputs/TrainSet_georef.csv")
 X0 <-
   X0[, c("ID1", "BGC", vs35), with = F] 
 
@@ -238,7 +248,7 @@ The preprocessing function from the caret package was used to identify variables
 # # summarize the correlation matrix
 # #print(correlationMatrix)
 # # find attributes that are highly corrected (ideally >0.75)
-  highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.9, verbose = TRUE, names = TRUE) ## review for removal of highly correlated vars
+  highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.7, verbose = TRUE, names = TRUE) ## review for removal of highly correlated vars
    highlyCorrelated
   #X0 <- X0 %>% dplyr::select(-c(highlyCorrelated))%>% drop_na(BGC)
 
@@ -255,14 +265,14 @@ The preprocessing function from the caret package was used to identify variables
 ```
 
 ```{r remove poor BGCs}
-badbgs <- c("BWBSvk", "ICHmc1a", "MHun", "SBSun", "ESSFun", "SWBvk","MSdm3","ESSFdc3" )#, "ESSFab""CWHws2", "CWHwm", "CWHms1" , 
+badbgs <- c("BWBSvk", "ICHmc1a", "MHun", "SBSun", "ESSFun", "SWBvk","MSdm3","ESSFdc3", "IDFdxx_WY", "MSabS", "FGff", "JPWmk_WY" )#, "ESSFab""CWHws2", "CWHwm", "CWHms1" , 
 X0 <- X0 %>%  filter(!BGC %in% badbgs)
 BGCunits <- X0 %>% arrange(BGC) %>% select(BGC)
 BGCunits <- unique(BGCunits$BGC)
 ```
 
 ```{r add in BGC Zone info}
-BGCZone <- fread(paste0(cloud_dir,"All_BGCs_Info_v12_2.csv"), data.table=FALSE) %>% dplyr::select(Zone, BGC)
+BGCZone <- fread(paste0(cloud_dir,"All_BGCs_Info_v12_10.csv"), data.table=FALSE) %>% dplyr::select(Zone, BGC)
 XAll <- left_join(X0, BGCZone) %>% dplyr::select(ID1, Zone, BGC, everything())
 
 ```
@@ -299,10 +309,20 @@ ggplot(X.test2, aes(Zone,value))+
 
 The new rebalanced training set is 310 668 points. This training set is submitted to ranger to generate a final climate model of BGCs for western north america.
 
-```{r}
+```{r final training sets}
 XAll <- as.data.frame(XAll) 
 X2 <- removeOutlier(XAll, alpha = .025, numIDvars = 3) ###set alpha for removal of outliers (2.5% = 3SD)
  count_tp <- X2 %>% dplyr::count(BGC)
+X_removed <- XAll[!XAll$ID1 %in% X2$ID1,] %>% select(ID1, BGC)
+ X_removed <- left_join(X_removed, IDVars)
+fwrite( X_removed , "./outputs/RemovedOutliersTrainingSet_georef.csv")
+  X_test <- as.data.frame(X_test) 
+X_test_final <- removeOutlier(X_test, alpha = .025, numIDvars = 4) ###set alpha for removal of outliers (2.5% = 3SD)
+ count_test <- X_test_final %>% dplyr::count(BGC)
+
+ X_test_removed <- X_test[!X_test$ID1 %in% X_test_final$ID1,]
+ 
+fwrite(X_test_final, "./outputs/FinalReducedTrainingSet_georef2.csv")
 ```
 
 ````{r remove very small units}
@@ -343,7 +363,7 @@ BGCbalance_recipe <-  recipe(BGC ~ ., data =  BGC_train) %>%
     #step_dummy(all_nominal(),-all_outcomes()) %>%    
     # step_zv(all_numeric()) %>% # remove values with no variance
     step_downsample(BGC, under_ratio = 66) %>%
-    #step_smote(BGC, over_ratio = .33, neighbors = 5) %>% 
+    step_smote(BGC, over_ratio = .33, neighbors = 5) %>% 
     prep()
 BGC_train2 <- BGCbalance_recipe  %>% juice()
 BGC_train2$BGC <- as.factor(BGC_train2$BGC)
@@ -373,7 +393,7 @@ BGC_rfzone <- fit(
   BGC_workflow, 
   BGC_train)
 covcount= BGC_rfzone$fit$fit$fit$num.independent.variables
-save(BGC_rfzone, file = paste0("./BGC_models/WNAv12_Zone_", covcount, "_Var_tidy_30June21.Rdata"))
+save(BGC_rfzone, file = paste0("./BGC_models/WNAv12_Zone_", covcount, "_Var_tidy_6Sept21.Rdata"))
 ```
 
 
@@ -531,7 +551,7 @@ covcount= BGC_rfzone$fit$fit$fit$num.independent.variables
 var.imp = BGC_rfzone$fit$fit$fit$variable.importance
 
 
-save(BGC_rfzone, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_tidy_30June21.Rdata"))
+save(BGC_rfzone, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_tidy_6Sept21.Rdata"))
 
 
 ```
@@ -539,6 +559,7 @@ save(BGC_rfzone, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_t
 
 ```{r build final ranger model with larger training point size, cache = TRUE, echo=FALSE}
 #XAll <-  fread( "./inputs/training_data/FinalTrainingSet_19Var_17Jan21.csv")
+require(themis)
 BGC_good_subzone <- as_tibble(BGC_good_subzone) %>% mutate_if(is.character, as.factor)# %>% select(-Latitude, -Longitude)
 
 BGCbalance_recipe <-  recipe(BGC ~ ., data =  BGC_good_subzone) %>%
@@ -548,14 +569,14 @@ BGCbalance_recipe <-  recipe(BGC ~ ., data =  BGC_good_subzone) %>%
     #step_dummy(all_nominal(),-all_outcomes()) %>%    
     # step_zv(all_numeric()) %>% # remove values with no variance
     step_downsample(BGC, under_ratio = 66) %>%
-    #step_smote(BGC, over_ratio = .2, neighbors = 8) %>% 
+    step_smote(BGC, over_ratio = .5, neighbors = 8) %>% 
     prep()
 X_balanced <- BGCbalance_recipe  %>% juice()
 X_balanced$BGC <- as.factor(X_balanced$BGC)
 count_tp <- X_balanced %>% dplyr::count(BGC)
 #XAll <- X_balanced[,order(colnames(X_balanced))] %>% dplyr::select(ID1, BGC, CMD.total, DD5_sp,  PPT_JAS, bFFP, MCMT,  everything())# put the variable to be overweighted at the front to make weighting list easier
 #XAll <- X_balanced[,order(colnames(X_balanced))] %>% dplyr::select(ID1, BGC, CMD.total, DD5, MSP, FFP, EMT_threshold, MCMT, DD_delayed, everything())# DD_delayed,
-XAll <- X_balanced[,order(colnames(X_balanced))] %>% dplyr::select(ID1, BGC, DD_delayed,  CMDMax, DD5, everything())
+XAll <- X_balanced[,order(colnames(X_balanced))] %>% dplyr::select(ID1, BGC, CMD.total, DD_delayed, everything())
 # BGC_recipe <- recipe(BGC ~ .,  data = XAll) %>%
 #   update_role(ID1, new_role = "ID") %>% 
 #   step_center(all_predictors()) %>%
@@ -566,8 +587,8 @@ vs = XAll %>% select(-ID1, -BGC) %>% colnames()
 ##probability of being selected with each mtry
 var.weight <- as.data.frame(vs) %>% mutate(wt = "")
 #var.weight$wt <- c(.3, .3, .7, .3, .1, .3, .3, .3, .3, .3, 0, .3, .3, .3, .5, .7, .3, .5, .3)
-var.weight$wt <- c(.05, .1, .1, .1, .1, .1, .1, .1, .1, .1, .1, .1)
-#var.weight$wt <- c(.1, .1, .1, .1, .1, .1, .1, .1, .1, .1, .1)
+var.weight$wt <- c(.3, .05, .1, .1, .1, .1, .1, .1, .1, .1, .1)
+#var.weight$wt <- c(.1, .1, .1, .1, .1, .1)# , .1, .1, .1, .1)
 # , .1# .1,
    #               .1, .1, .1, .1, .1, .1, .1, .1, .1)##for 19
 # var.weight$wt <- c(.5, .4, .3, .1, .1, .1, .1, .1, .1, .1,
@@ -582,7 +603,7 @@ var.weight.vec <- var.weight$wt
 ###Build variable weighted ranger model
 tic()
 BGCmodel2 <- ranger(BGC ~ ., data = XAll[-1],
-                           num.trees = 201,  seed = 12345,
+                           num.trees = 301,  seed = 12345,
                             splitrule =  "extratrees", #""gini",
                             #always.split.variables = c("DD5","CMD.total", "PPT_JAS"), #,
                             split.select.weights = var.weight.vec,
@@ -596,7 +617,7 @@ DF <- as.data.frame(BGCmodel2$variable.importance) %>% tibble::rownames_to_colum
 covcount <- nrow(DF)
 
  
-save(BGCmodel2, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_ranger_6July21.Rdata"))
+save(BGCmodel2, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_ranger_6Sept21.Rdata"))
 test <- treeInfo(BGCmodel2,1)
 
  ggplot(DF, aes(x=reorder(w,v), y=v,fill=v))+ 
@@ -611,19 +632,21 @@ tic()
 #pred <- predict(BGCmodel2, data = XAll[-1])
 #probabilities <- as.data.frame(predict(BGCmodel2, data = XAll[-1],type='response', verbose = TRUE)$predictions)
 toc()
-#### build probability model for the current climate change period uncertainty
-# tic()
-# BGCmodel2p <- ranger(BGC ~ ., data = XAll[-1],
-#                            num.trees = 101,  seed = 12345,
-#                             splitrule =  "extratrees", #""gini",
-#                             #always.split.variables = c("DD5","CMD.total", "PPT_JAS"), #,
-#                             split.select.weights = var.weight.vec,
-#                     mtry = 5,
-#                           #max.depth = .5,
-#                     min.node.size = 5,
-#                            importance = "permutation", write.forest = TRUE, classification = TRUE,  probability = TRUE)
-# 
-# toc()
+### build probability model for the current climate change period uncertainty
+tic()
+BGCmodel2p <- ranger(BGC ~ ., data = XAll[-1],
+                           num.trees = 301,  seed = 12345,
+                            splitrule =  "extratrees", #""gini",
+                            #always.split.variables = c("DD5","CMD.total", "PPT_JAS"), #,
+                            split.select.weights = var.weight.vec,
+                    mtry = 3,
+                          #max.depth = .5,
+                    min.node.size = 2,
+                           importance = "permutation", write.forest = TRUE, classification = TRUE,  probability = TRUE)
+
+toc()
+save(BGCmodel2p, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_ranger_probability_6Sept21.Rdata"))
+
 # 
 # tic()
 # #predp <- predict(BGCmodel2p, data = XAll[-1])
