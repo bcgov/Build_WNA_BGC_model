@@ -48,6 +48,7 @@ require(skimr)
 require(DescTools)
 require(labdsv)
 require(factoextra)
+require(vegan)
 #require (gstat)
 #install.packages("DescTools", dependencies = TRUE)
 #data.dir = "./inputs/"
@@ -161,7 +162,7 @@ best.clust<-as.numeric(n_clust$clusters[which.max(n_clust$y)])
 ### 1b. Cluster Analysis of 2050s rcp45 BGC predictions by GCM (all GCMs)
 
 ```{r output dendrogram, warning=FALSE}
-best.clust <- 4
+#best.clust <- 4
 gcm_clst <- hcut(dat.matrx, k = best.clust, hc_method = "ward.D2", hc_metric = "euclidean")
 gcm.group <- gcm_clst$cluster %>% as.data.frame %>% rownames_to_column("BGC")
 gcm_dend <- fviz_dend (gcm_clst ,  color_labels_by_k = T, lwd = .5,
