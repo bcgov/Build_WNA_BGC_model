@@ -44,7 +44,7 @@ require(tidymodels)
 #data.dir = "./inputs/"
 #dir.create("cLHS")
 
-source("./_functions/AddVars.R")
+#source("./_functions/AddVars.R")
 source("../Build_USA_BEC/_functions/AddVars.R")
 cloud_dir <- "F:/OneDrive - Government of BC/CCISSv12/"
 
@@ -53,7 +53,7 @@ cloud_dir <- "F:/OneDrive - Government of BC/CCISSv12/"
 Points from a 8km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
 
 ```{r read in Hex Grid Climate Data}
-region <- "RSC"
+region <- "RCB"
 # bring in grid data with climate attributes
 #  X <- fread(paste0("./inputs/", region,"_400m_HexPts_Normal_1961_1990MSY.csv"), stringsAsFactors = FALSE, data.table = FALSE)#read in historic period
 # hexpts <- X %>% select(ID1, ID2, Latitude, Longitude, Elevation)
@@ -72,14 +72,14 @@ Y <- addVars(Y)
  # Z1 <-addVars(Z1)
 
 ### load  tidy model
- #load("./BGC_models/WNAv12_Zone_13_Var_tidy_30June21.RData")
- #  load("./BGC_models/WNAv12_Subzone_13_Var_tidy_30June21.RData")
+ ##load("./BGC_models/WNAv12_Zone_13_Var_tidy_30June21.RData")
+ #  load("./BGC_models/WNAv12_Subzone_11_Var_tidy_5Apr22.RData")
  # BGCmodel.tidy <- BGC_rfzone
  # model_vars <- as.data.frame(BGCmodel.tidy$fit$fit$fit$variable.importance) %>% tibble::rownames_to_column()
 
 ### load ranger  model
-
-load("./BGC_models/WNAv12_Subzone_11_Var_ranger_8July21_5.Rdata")
+load("./BGC_models/WNAv12_Subzone_11_Var_ranger_5Apr22.Rdata")
+#load("./BGC_models/WNAv12_Subzone_11_Var_tidy_5Apr22.Rdata")
 BGCmodel <- BGCmodel2
 model_vars <- as.data.frame(BGCmodel$variable.importance) %>% tibble::rownames_to_column()
 
@@ -171,7 +171,7 @@ BGC_area <- t2 %>%
   mutate(Area = st_area(.)) %>% mutate (Area = Area/1000000) %>%
   mutate(ID = seq_along(BGC)) %>% dplyr::select(BGC, Area) %>% st_set_geometry(NULL)
 #write.csv(BGC_area, paste0("./outputs/", region, "_", timeperiod, "_", covcount, "_BGC_area_predicted_mahbgcreduced.csv"))
-st_write(t2, dsn = paste0("./outputs/", covcount, "_", "Subzone_Map_hex400_dissolved_reduced8July21_5.gpkg"), layer = paste0(region, "_", timeperiod, "_", region ,"_", covcount, "_vars_ranger"), driver = "GPKG", delete_layer = TRUE)
+st_write(t2, dsn = paste0("./outputs/", covcount, "_", "Subzone_Map_hex400_dissolved_reduced_ranger_6Apr2022.gpkg"), layer = paste0(region, "_", timeperiod, "_", region ,"_", covcount, "_vars_ranger"), driver = "GPKG", delete_layer = TRUE)
                                                                                                        
 
 ```
