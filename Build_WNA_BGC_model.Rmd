@@ -68,38 +68,17 @@ Points from a 4km hex grid of western north america are generated in R and submi
 
 ```{r load and prep training data}
 #X0 <- fread("./inputs/training_data/WNAv12_2km_Hex_Pts_Normal_1961_1990MSY_3.csv")
-X0 <- fread("D:/CommonTables/HexGrids/WNA_4k_HexPts_BGCv12_Normal_1961_1990MSY_reduced6Sept2021.csv") %>% dplyr::filter(!(BGC == "MHmm2" & Latitude > 55)) ##ClimateNA data
-IDVars <- X0[, .(ID1, Latitude, Longitude)]
-#X0.1 <- fread("D:/CommonTables/HexGrids/BC_4k_HexPts_BGC_NoSampleRemoved_Normal_1961_1990MSY.csv") ##Same set of points by ClimateBC
+X0 <- fread("./inputs/WNA_4k_HexPts_BGC_NoSampleRemoved2_Normal_1961_1990MSY.csv")# %>% rename(BGC = ID2)# %>% dplyr::filter(!(BGC == "MHmm2" & Latitude > 55)) ##ClimateNA data
+#####This block to join a ClimateBC to ClimateNA dataset##########################
 
- # X0.1 <- fread("D:/CommonTables/HexGrids/WNA_4k_HexPts_BGC_NoSampleRemoved.csv") %>% dplyr::rename (BGC = BGC_2) %>%  select(ID1, BGC, Latitude, Longitude,Elevation)
- # fwrite(X0.1, "D:/CommonTables/HexGrids/WNA_4k_HexPts_BGC_NoSampleRemoved.csv")
-
-# X0update <- left_join(X0, X0.1)# 
-# X0update$match <- X0update$BGC_3 == X0update$BGC 
-# X0update2 <- X0update %>% filter(match == "FALSE")%>% select(ID1, BGC_3, BGC)
-# X0update.1 <- X0update %>% filter(match == "TRUE")
-# X0update.2 <- X0update %>% filter(!match == "TRUE")
-# X0update.2$BGC_3 <- ifelse(X0update.2$BGC_3 != "Null", X0update.2$BGC, X0update.2$BGC_3 )
-# X0 <- rbind(X0update.1, X0update.2) %>% select(-BGC)
-
-##-----This sequence replaces the ClimateNA data with ClimateBC data where possible
-# X0 <-
-#   X0 %>%   filter(!BGC == 'Null') %>% filter(!BGC == "")
-# X0[X0 == -9999] <- NA
-# X0 <- X0[complete.cases(X0),]
-# ###---run this code if wanting to merge a climateNA and climateBC dataset
-# X0.1 <-
-#   X0.1 %>%   filter(!BGC == 'Null') %>% filter(!BGC == "")
-# X0.1[X0.1 == -9999] <- NA
-# X0.1 <- X0.1[complete.cases(X0.1),]
+# X0.1 <- fread("./inputs/BC_4k_HexPts_BGC_NoSampleRemoved2_Normal_1961_1990MSY.csv") %>% rename(BGC = ID2) %>% filter(!Tmax01 == -9999) ##Same set of points by ClimateBC
 # 
-# 
-# 
-# X0_merge <- anti_join(X0, X0.1, by="ID1")
-# X0 <- rbind(X0_merge, X0.1)
-# X0 <- fwrite(X0, "D:/CommonTables/HexGrids/WNA_4k_HexPts_BGCv12_Normal_1961_1990MSY_reduced.csv")
-#______________
+#  X0_merge <- anti_join(X0, X0.1, by="ID1")
+#  X0 <- rbind(X0_merge, X0.1)
+#  X0 <- fwrite(X0, "./inputs/WNA_4k_HexPts_BGC_NoSampleRemoved2_Normal_1961_1990MSY.csv")
+####################################################
+ IDVars <- X0[, .(ID1, Latitude, Longitude)]
+##______________
 ```
 
 Create different model variable sets
@@ -221,7 +200,7 @@ X_test <- X0[, c("ID1", "BGC", vs_final), with = F]
 X_test <- left_join(X_test, IDVars)
 fwrite(X_test, "./outputs/TrainSet_georef.csv")
 X0 <-
-  X0[, c("ID1", "BGC", vs35), with = F] 
+  X0[, c("ID1", "BGC", vs_final), with = F] 
 
 
 
@@ -233,6 +212,15 @@ count_tp <- X0 %>% dplyr::count(BGC)
 ```
 
 
+```{r factormineR feature selection}
+require(FactoMineR)
+X_test <- X0[sample(1:nrow(X0), 10000)]
+X_cat <- catdes(X_test, num.var = 2, proba = 0.05)
+X_cat$quanti
+
+
+
+```
 
 
 The preprocessing function from the caret package was used to identify variables with near-zero variance or correlation >0.90 in the combined data set. These variables were removed leaving a final variable set of 20 variables.
@@ -273,7 +261,7 @@ BGCunits <- unique(BGCunits$BGC)
 
 ```{r add in BGC Zone info}
 BGCZone <- fread(paste0(cloud_dir,"All_BGCs_Info_v12_10.csv"), data.table=FALSE) %>% dplyr::select(Zone, BGC)
-XAll <- left_join(X0, BGCZone) %>% dplyr::select(ID1, Zone, BGC, everything())
+XAll <- left_join(X0, BGCZone) %>% dplyr::select(ID1, Zone, BGC, everything()) %>% dplyr::filter(!DD5 == -9999)
 
 ```
 
@@ -347,9 +335,9 @@ ggplot(X2_sum, aes(x= reorder(BGC, -prop), y = freq)) +
 
 ###change for Zone tests
 BGC_good <- as.data.frame(BGC_good)
-BGC_good_zone <- BGC_good %>% dplyr::select(-BGC) %>%  dplyr::rename(BGC = Zone)
+BGC_good_zone <- BGC_good %>% dplyr::select(-BGC) %>%  dplyr::rename(BGC = Zone) %>% drop_na()
 BGC_good_subzone <- BGC_good %>% dplyr::select(-Zone)
-BGC_split <- initial_split(BGC_good_zone, prop = .5, strata = BGC)
+BGC_split <- initial_split(BGC_good_zone, prop = .8, strata = BGC)
 BGC_train <- training(BGC_split)
 BGC_test <- testing(BGC_split)
 ```
@@ -381,6 +369,16 @@ ggplot( BGC_train_sum2, aes(x= reorder(BGC, -prop), y = freq)) +
 ```
 ##Build tidy model of BGC Zone
 ```{r fit non-cv model fpr comparison, error=TRUE}
+BGCbalance_recipe <-  recipe(BGC ~ ., data =  BGC_train) %>%
+   # update_role(ID1, new_role = "id variable") %>% 
+    #update_role(BGC, new_role = "class2") %>% 
+    #step_corr(all_numeric()) %>%        # remove correlated covariates
+    #step_dummy(all_nominal(),-all_outcomes()) %>%    
+    # step_zv(all_numeric()) %>% # remove values with no variance
+    step_downsample(BGC, under_ratio = 66) %>%
+    step_smote(BGC, over_ratio = .33, neighbors = 5) %>% 
+    prep()
+
 randf_spec <- rand_forest(mtry = 6, min_n = 2, trees = 201) %>%
   set_mode("classification") %>%
   set_engine("ranger", importance = 'permutation') #or "permutations"impurity"
@@ -388,12 +386,59 @@ randf_spec <- rand_forest(mtry = 6, min_n = 2, trees = 201) %>%
 BGC_workflow <- workflow() %>%
     add_recipe(BGCbalance_recipe) %>%
     add_model(randf_spec)
+BGC_train$BGC <- as.factor(BGC_train$BGC)
 
 BGC_rfzone <- fit(
   BGC_workflow, 
   BGC_train)
 covcount= BGC_rfzone$fit$fit$fit$num.independent.variables
-save(BGC_rfzone, file = paste0("./BGC_models/WNAv12_Zone_", covcount, "_Var_tidy_6Sept21.Rdata"))
+save(BGC_rfzone, file = paste0("./BGC_models/WNAv12_Zone_", covcount, "_Var_tidy_2Nov21.Rdata"))
+```
+
+##Build tidy NNN model of BGC Zone
+```{r fit non-cv model fpr comparison, error=TRUE}
+require(keras)
+require(tensorflow)
+
+###change for Zone tests
+BGC_good <- as.data.frame(BGC_good)
+BGC_good_zone <- BGC_good %>% dplyr::select(-ID1, -BGC) %>%  dplyr::rename(BGC = Zone) %>% drop_na()
+BGC_good_subzone <- BGC_good %>% dplyr::select(-Zone)
+BGC_split <- initial_split(BGC_good_zone, prop = .8, strata = BGC)
+BGC_train <- training(BGC_split)
+BGC_test <- testing(BGC_split)
+
+#BGC_test$BGC <- as.character(BGC_test$BGC)
+NNN_recipe <-  recipe(BGC ~ ., data =  BGC_train) %>%
+    #update_role(ID1, new_role = "id variable") %>% 
+    step_BoxCox(all_predictors())%>%
+    step_normalize(all_predictors()) %>%
+    step_downsample(BGC, under_ratio = 66) %>%
+    step_smote(BGC, over_ratio = .33, neighbors = 5) %>% 
+    prep(training = BGC_train, retain = TRUE)
+
+# For validation:
+val_normalized <- bake(NNN_recipe, new_data = BGC_train, all_predictors())
+# For testing when we arrive at a final model: 
+test_normalized <- bake(NNN_recipe, new_data = BGC_test, all_predictors())
+
+set.seed(57974)
+nnet_fit <-
+  mlp(epochs = 1000, hidden_units = NULL, dropout = 0.1) %>%
+  set_mode("classification") %>% 
+  # Also set engine-specific `verbose` argument to prevent logging the results: 
+  set_engine("keras", verbose = 0) %>%
+  fit(BGC ~ ., data = bake(NNN_recipe, new_data = NULL))
+BGC_test$BGC <- as.factor(BGC_test$BGC)
+val_results <- 
+  BGC_test %>%
+  bind_cols(
+    predict(nnet_fit, new_data = test_normalized),
+    predict(nnet_fit, new_data = test_normalized, type = "prob")
+  )
+val_results %>% slice(1:5)
+val_results %>% accuracy(truth = BGC, .pred_class)
+
 ```
 
 
@@ -475,18 +520,19 @@ require(ggtext)
 BGC_dev  <- BGC_dev  %>%
   mutate(BGC = fct_reorder(BGC, pred_pc))
 
-  ds_plot <- BGC_dev %>%   ggplot( aes(x=reorder(BGC, pred_pc), y=pred_pc)) +
+  ds_plot <-  ggplot(BGC_dev, aes(x=reorder(BGC, pred_pc), y=pred_pc)) +
     geom_bar(stat='identity', width=.5) + #aes(fill = pred.obs.type)
     coord_flip(ylim =c(-100, 110))
 label = df_total2 [3] %>% round(1)
-ds_plot <- ds_plot +
-  geom_textbox(data = devtext, width = .1,
-            size = 3, 
-            mapping = aes(x = 20 , y = -60 ,label = label),
-            colour = "blue"
+ds_plot2 <- ds_plot +
+  geom_textbox(data = devtext, 
+               width = .1,
+              size = 3, 
+              mapping = aes(x = 20 , y = -60 ,label = label),
+              colour = "blue"
   )
 
-ds_plot
+ds_plot2
 require(ggpubr)
 ggexport(ds_plot, filename  = "./outputs/Deviation_graph.jpg", pointsize = 6, width = 800, height = 1200)
 
@@ -533,8 +579,8 @@ BGCbalance_recipe <-  recipe(BGC ~ ., data =  BGC_good_subzone) %>%
     #step_corr(all_numeric()) %>%        # remove correlated covariates
     #step_dummy(all_nominal(),-all_outcomes()) %>%    
     # step_zv(all_numeric()) %>% # remove values with no variance
-    step_downsample(BGC, under_ratio = 70) %>%
-    step_smote(BGC, over_ratio = .1, neighbors = 5) %>% 
+    step_downsample(BGC, under_ratio = 66) %>%
+    step_smote(BGC, over_ratio = .33, neighbors = 5) %>% 
     prep()
 
 BGC_workflow <- workflow() %>%
@@ -551,7 +597,7 @@ covcount= BGC_rfzone$fit$fit$fit$num.independent.variables
 var.imp = BGC_rfzone$fit$fit$fit$variable.importance
 
 
-save(BGC_rfzone, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_tidy_6Sept21.Rdata"))
+save(BGC_rfzone, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_tidy_5Apr22.Rdata"))
 
 
 ```
@@ -617,7 +663,7 @@ DF <- as.data.frame(BGCmodel2$variable.importance) %>% tibble::rownames_to_colum
 covcount <- nrow(DF)
 
  
-save(BGCmodel2, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_ranger_6Sept21.Rdata"))
+save(BGCmodel2, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_ranger_5Apr22.Rdata"))
 test <- treeInfo(BGCmodel2,1)
 
  ggplot(DF, aes(x=reorder(w,v), y=v,fill=v))+ 
@@ -645,7 +691,7 @@ BGCmodel2p <- ranger(BGC ~ ., data = XAll[-1],
                            importance = "permutation", write.forest = TRUE, classification = TRUE,  probability = TRUE)
 
 toc()
-save(BGCmodel2p, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_ranger_probability_6Sept21.Rdata"))
+save(BGCmodel2p, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_ranger_probability_5Apr22.Rdata"))
 
 # 
 # tic()
@@ -661,7 +707,8 @@ save(BGCmodel2p, file = paste0("./BGC_models/WNAv12_Subzone_", covcount, "_Var_r
 ```{r quick mtry tuning}
 ###result was mtry = 3 for WNA subzones
 library(tuneRanger)
-res <- tuneMtryFast(BGC ~ ., data = XAll,  stepFactor = 1.5)
+XAll2 <- XAll %>% select(-ID1, -Zone) %>% mutate(BGC = as.factor(BGC))
+res <- tuneMtryFast(BGC ~ ., data = XAll2, num.treesTry = 100, stepFactor = 1.5)
 
 ```
 
