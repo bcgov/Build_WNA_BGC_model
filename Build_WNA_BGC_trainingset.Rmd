@@ -13,46 +13,21 @@ require (smotefamily)
 require(data.table)
 library(randtoolbox)
 library(clhs)
-library(foreign)
 library(ggplot2)
-library(raster)
-library(RStoolbox)
-library(maptools)
-library(sp)
-library(spatstat)
-require(doParallel)
-require(scales)
 require(sf)
 require(caret)
-require (gstat)
 require(ranger)
-require(rticles)
-#require(expss)
-require(tictoc)
-require(randomForest)
-library(tidyverse)
-require(tidymodels)
-require(vip)
-require(stringr)
-require(corpcor)
-library(yaml)
-require(tidypredict)
-require(skimr)
-require(DescTools)
-#require (gstat)
-#install.packages("DescTools", dependencies = TRUE)
-#data.dir = "./inputs/"
-#dir.create("cLHS")
+
 
 #tidymodels_prefer()
 #install.packages ("spThin")
 #conflicted::conflict_prefer(name = "spec", winner = "yardstick")
 #conflict_prefer("rescale", "scales")
 
-source("../Build_USA_BEC/_functions/AddVars.R")
-source("../Build_USA_BEC/_functions/removeOutlier.R")
-source("../Build_USA_BEC/_functions/acc_metrix.R")
-cloud_dir <- "F:/OneDrive - Government of BC/CCISSv12/latest_CCISS_tool_files/"
+# source("../Build_USA_BEC/_functions/AddVars.R")
+# source("../Build_USA_BEC/_functions/removeOutlier.R")
+# source("../Build_USA_BEC/_functions/acc_metrix.R")
+# cloud_dir <- "F:/OneDrive - Government of BC/CCISSv12/latest_CCISS_tool_files/"
 
 ```
 # General process
@@ -66,18 +41,52 @@ To
 
 Points from a 4km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
 
+
+```{r}
+library(terra)
+library(data.table)
+wna_bgc <- st_read("../WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
+wna_grid <- st_make_grid(wna_bgc, cellsize = 2000, what = "centers")
+elev <- rast("C:\\Users\\kdaust\\AppData\\Local/R/cache/R/climRpnw/inputs_pkg/normal/Normal_1961_1990MP/dem/dem2_WNA.nc")
+elev2 <- terra::project(elev, "epsg:3005")
+pts <- vect(wna_grid)
+tmp_elev <- terra::extract(elev2,pts)
+pts_4326 <- project(pts, "epsg:4326")
+coords <- geom(pts_4326,df = TRUE)
+coords <- coords[,c("geom","x","y")]
+coords <- data.table(coords)
+coords[,elev := tmp_elev$dem2_WNA]
+coords <- coords[!is.na(elev),]
+setnames(coords, c("id","long","lat","elev"))
+fwrite(coords, "WNA_2km_grid.csv")
+
+coords <- fread("WNA_2km_grid.csv")
+```
+
+```{r}
+library(climRdev)
+setcolorder(coords, c("long","lat","elev","id"))
+coords <- as.data.frame(coords)
+thebb <- climRdev::get_bb(coords) ##get bounding box based on input points
+dbCon <- data_connect() ##connect to database
+normal <- climRdev::normal_input_postgis(dbCon = dbCon, bbox = thebb, cache = TRUE) ##this takes a couple mins the first time it downloads
+
+vars_needed <- c("DD5","DD_0_at","DD_0_wt","PPT05","PPT06","PPT07","PPT08","PPT09","CMD","PPT_at","PPT_wt","CMD07","SHM", "AHM", "NFFD", "PAS")
+
+clim_vars <- downscale(
+  xyz = coords,
+  normal = normal,
+  return_normal = TRUE,
+  vars = vars_needed
+)
+
+```
+
 ```{r load and prep training data}
 #X0 <- fread("./inputs/training_data/WNAv12_2km_Hex_Pts_Normal_1961_1990MSY_3.csv")
-X0 <- fread("./inputs/WNA_4k_HexPts_BGC_NoSampleRemoved2_Normal_1961_1990MSY.csv")# %>% rename(BGC = ID2)# %>% dplyr::filter(!(BGC == "MHmm2" & Latitude > 55)) ##ClimateNA data
-#####This block to join a ClimateBC to ClimateNA dataset##########################
+X0 <- fread("./inputs/WNA_4k_HexPts_BGC_NoSampleRemoved2_Normal_1961_1990MSY.csv")# %>% rename(BGC = ID2)# %>% dplyr::filter(!(BGC == "MHmm2" & Latitude > 
 
-# X0.1 <- fread("./inputs/BC_4k_HexPts_BGC_NoSampleRemoved2_Normal_1961_1990MSY.csv") %>% rename(BGC = ID2) %>% filter(!Tmax01 == -9999) ##Same set of points by ClimateBC
-# 
-#  X0_merge <- anti_join(X0, X0.1, by="ID1")
-#  X0 <- rbind(X0_merge, X0.1)
-#  X0 <- fwrite(X0, "./inputs/WNA_4k_HexPts_BGC_NoSampleRemoved2_Normal_1961_1990MSY.csv")
-####################################################
- IDVars <- X0[, .(ID1, Latitude, Longitude)]
+IDVars <- X0[, .(ID1, Latitude, Longitude)]
 ##______________
 ```
 
@@ -92,16 +101,12 @@ vs10+ = testing effects and final set
 
 ```{r create variable sets}
 modelvars <- colnames(X0)[-1]
-vs_final <- c("DD5", "DD_delayed",   #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduce list to omit non-biological and redundant variables
-             #"Eref_sp", #"TD",
-         # "EMT_threshold", #"MCMT",# EMT",  #"Tmin_sp",  #Tmin_wt",
-          "PPT_MJ", "PPT_JAS", # PPT_MJ", "PPT_JAS", #  "PPT_sp","PPT_sm","MSP",
-         "CMD.total", "CMI", "CMDMax", #"CMD","CMD_at",,"CMDMax"
-         "SHM", "AHM", # "CMD.def",
-              #"EXT",#"Tmax_sp","Tmax_sm",
-            "NFFD", #"FFP",  "NFFD","NFFD_sp",
-          "PAS")#,
-         #"Eref_at", "CMI_sm")
+vs_final <- c("DD5", "DD_delayed",
+          "PPT_MJ", "PPT_JAS", 
+         "CMD.total", "CMI", "CMDMax",
+         "SHM", "AHM", 
+            "NFFD", 
+          "PAS")
 
 ```
 
