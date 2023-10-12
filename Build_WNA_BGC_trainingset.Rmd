@@ -107,21 +107,20 @@ elev <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_SRT_30m.tif") ##I used a 1km D
 
 ```{r}
 library(climRdev)
-
-coords <- fread("C:/F")
-coords <- as.data.frame(coords2)
+library(terra)
+coords <- fread("C:/Users/kdaust/Government of BC/External Future Forest Ecosystems Centre - Kiri/WNA_BGC/WNA_2km_grid_WHM.csv")
+coords <- as.data.frame(coords)
+# pts <- vect(coords, geom = c("long","lat"), crs = "epsg:4326")
+# writeVector(pts,"Will_Pts.gpkg")
 
 setcolorder(coords, c("long","lat","elev","id"))
 coords <- as.data.frame(coords) #%>% dplyr::filter(elev >-1)
 
 thebb <- climRdev::get_bb(coords) ##get bounding box based on input points
-#thebb <- c(55, 51, -117, -120)
 dbCon <- data_connect() ##connect to database
-
-thebb <- c(60.0033688541466, 38.9909731490503, -107.993162013109, -139.037335926101)
-normal <- climRdev::normal_input_postgis(dbCon = dbCon, bbox = thebb, cache = TRUE) ##this takes a couple mins the first time it downloads
+#thebb <- c(60.0033688541466, 38.9909731490503, -107.993162013109, -139.037335926101)
+normal <- climRdev::normal_input_postgis(dbCon = dbCon, normal = "normal_na", bbox = thebb, cache = TRUE) ##this takes a couple mins the first time it downloads
 plot(normal[[31]])
-plot(wna_bgc)
 
 ## based on vs_final below. climr doesn't have CMI - might need to add that in
 vars_needed <- c("DD5","DD_0_at","DD_0_wt","PPT05","PPT06","PPT07","PPT08","PPT09","CMD","PPT_at","PPT_wt","CMD07","SHM", "AHM", "NFFD", "PAS")
@@ -133,8 +132,9 @@ clim_vars <- downscale(
   return_normal = TRUE,
   vars = vars_needed
 )
+
 setDT(clim_vars)
-clim_vars <- clim_vars[!is.nan(PPT05),] ##a few points with no data
+clim_vars <- clim_vars[!is.nan(PPT05),] ##lots of points in the ocean
 ```
 
 ```{r load and prep training data}
