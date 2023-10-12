@@ -17,8 +17,13 @@ library(ggplot2)
 require(sf)
 require(caret)
 require(ranger)
-
-
+require(climRdev)
+# 
+# library(climRdev)
+# thebb <- c(55.38847, 54.61025, -126.94957, -127.7162)
+# dbCon <- data_connect()
+# normal <- normal_input_postgis(dbCon = dbCon, bbox = thebb, cache = TRUE)
+# remove(normal)
 #tidymodels_prefer()
 #install.packages ("spThin")
 #conflicted::conflict_prefer(name = "spec", winner = "yardstick")
@@ -45,6 +50,7 @@ Points from a 4km hex grid of western north america are generated in R and submi
 ```{r}
 library(terra)
 library(data.table)
+
 wna_bgc <- vect("../WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
 
 coords <- fread("../WNA_BGC/WNA_2km_grid_WHM.csv")
@@ -67,25 +73,49 @@ wna_grid$id <- seq_along(wna_grid)
 grid_bgc <- st_join(wna_grid,wna_bgc)
 elev <- rast("C:\\Users\\kdaust\\AppData\\Local/R/cache/R/climRpnw/inputs_pkg/normal/Normal_1961_1990MP/dem/dem2_WNA.nc") ##I used a 1km DEM - if you have a higher res one could use that
 elev2 <- terra::project(elev, "epsg:3005")
-pts <- vect(wna_grid)
-tmp_elev <- terra::extract(elev2,pts)
-pts_4326 <- project(pts, "epsg:4326")
-coords <- geom(pts_4326,df = TRUE)
-coords <- coords[,c("geom","x","y")]
-coords <- data.table(coords)
-coords[,elev := tmp_elev$dem2_WNA]
-coords <- coords[!is.na(elev),]
-setnames(coords, c("id","long","lat","elev"))
-fwrite(coords, "WNA_2km_grid.csv")
 
-coords <- fread("WNA_2km_grid.csv")
+require(tictoc)
+tic()
+wna_bgc <- st_read("D:/CommonTables/BGC_Maps/WNA_BGC_v12_5Apr2022_new.gpkg")#
+#wna_bgc2 <- sf::st_as_sf(wna_bgc)
+wna_grid <- st_make_grid(wna_bgc, cellsize = 2000, what = "centers") %>% st_transform(crs = 4326)
+
+
+elev <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_SRT_30m.tif") ##I used a 1km DEM - if you have a higher res one could use that
+
+###Chunk making sure the extent were matching
+# wna_mask <- vect(wna_bgc)
+# wna_mask <- project(wna_mask, "EPSG:4326")
+#elev <- crs(elev) <- "epsg:4326" 
+# dem_crop <- crop(elev, wna_mask, snap="near", mask=FALSE, touches=TRUE, extend=FALSE, filename="D:/CommonTables/DEMs/WNA_DEM_SRT_30m_cropped.tif")
+
+#elev2 <- terra::project(elev, "epsg:3005") ## this projection may not be suitable for all WNA
+# pts <- vect(wna_grid)
+# tmp_elev <- terra::extract(elev,pts)
+# #pts_4326 <- project(pts, "epsg:4326")
+# #coords <- geom(pts_4326,df = TRUE)
+# coords <- geom(pts,df = TRUE)
+# coords <- coords[,c("geom","x","y")]
+# coords <- data.table(coords)
+# coords[, elev := tmp_elev$WNA_DEM_SRT_30m]
+# coords <- coords[!is.na(elev),]
+# setnames(coords, c("id","long","lat","elev"))
+# fwrite(coords, "WNA_2km_grid.csv")
+# toc()
+# coords <- fread("WNA_2km_grid.csv")
 ```
 
 ```{r}
 library(climRdev)
+
 coords <- fread("C:/F")
 coords <- as.data.frame(coords2)
+
+setcolorder(coords, c("long","lat","elev","id"))
+coords <- as.data.frame(coords) #%>% dplyr::filter(elev >-1)
+
 thebb <- climRdev::get_bb(coords) ##get bounding box based on input points
+#thebb <- c(55, 51, -117, -120)
 dbCon <- data_connect() ##connect to database
 
 thebb <- c(60.0033688541466, 38.9909731490503, -107.993162013109, -139.037335926101)
