@@ -51,9 +51,9 @@ Points from a 4km hex grid of western north america are generated in R and submi
 library(terra)
 library(data.table)
 
-wna_bgc <- vect("../WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
+wna_bgc <- vect("D:/CommonTables/BGC_maps/WNA_BGC_v12_5Apr2022.gpkg")
 
-coords <- fread("../WNA_BGC/WNA_2km_grid_WHM.csv")
+coords <- fread("WNA_2km_grid_WHM.csv")
 pts <- vect(coords, geom=c("long","lat"), crs = "epsg:4326")
 pts <- project(pts, "epsg:3005")
 pts2 <- crop(pts, ext(wna_bgc))
@@ -64,7 +64,7 @@ setDT(coords2)
 coords2[,c("part","hole","geom") := NULL]
 coords2[,elev := pts2$elev]
 coords2[,id := seq_along(elev)]
-fwrite(coords2, "../WNA_BGC/WNA_2km_grid_KSD.csv")
+fwrite(coords2, "WNA_2km_grid_WHM2.csv")
 
 
 wna_grid <- st_make_grid(wna_bgc, cellsize = 2000, what = "centers")
@@ -109,7 +109,8 @@ elev <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_SRT_30m.tif") ##I used a 1km D
 library(climRdev)
 library(terra)
 coords <- fread("C:/Users/kdaust/Government of BC/External Future Forest Ecosystems Centre - Kiri/WNA_BGC/WNA_2km_grid_WHM.csv")
-coords <- as.data.frame(coords)
+coords <- fread("WNA_2km_grid_WHM.csv")
+coords <- as.data.frame(coords)# %>% dplyr::rename(long = 1, lat = 2)
 # pts <- vect(coords, geom = c("long","lat"), crs = "epsg:4326")
 # writeVector(pts,"Will_Pts.gpkg")
 
