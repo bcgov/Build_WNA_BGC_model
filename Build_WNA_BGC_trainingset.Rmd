@@ -51,37 +51,23 @@ Points from a 4km hex grid of western north america are generated in R and submi
 library(terra)
 library(data.table)
 
-wna_bgc <- vect("D:/CommonTables/BGC_maps/WNA_BGC_v12_5Apr2022.gpkg")
-
-coords <- fread("WNA_2km_grid_WHM.csv")
-pts <- vect(coords, geom=c("long","lat"), crs = "epsg:4326")
-pts <- project(pts, "epsg:3005")
-pts2 <- crop(pts, ext(wna_bgc))
-pts2 <- project(pts2, "epsg:4326")
-
-coords2 <- geom(pts2, df = T)
-setDT(coords2)
-coords2[,c("part","hole","geom") := NULL]
-coords2[,elev := pts2$elev]
-coords2[,id := seq_along(elev)]
-fwrite(coords2, "WNA_2km_grid_WHM2.csv")
-
-
-wna_grid <- st_make_grid(wna_bgc, cellsize = 2000, what = "centers")
-wna_grid <- st_as_sf(wna_grid)
-wna_grid$id <- seq_along(wna_grid)
-grid_bgc <- st_join(wna_grid,wna_bgc)
-elev <- rast("C:\\Users\\kdaust\\AppData\\Local/R/cache/R/climRpnw/inputs_pkg/normal/Normal_1961_1990MP/dem/dem2_WNA.nc") ##I used a 1km DEM - if you have a higher res one could use that
-elev2 <- terra::project(elev, "epsg:3005")
-
 require(tictoc)
 tic()
-wna_bgc <- st_read("D:/CommonTables/BGC_Maps/WNA_BGC_v12_5Apr2022_new.gpkg")#
-#wna_bgc2 <- sf::st_as_sf(wna_bgc)
+#wna_bgc <- st_read("D:/CommonTables/BGC_Maps/WNA_BGC_v12_5Apr2022_new.gpkg")#
+wna_bgc <- st_read("../WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
 wna_grid <- st_make_grid(wna_bgc, cellsize = 2000, what = "centers") %>% st_transform(crs = 4326)
+#elev <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_SRT_30m.tif") ##I used a 1km DEM - if you have a higher res one could use that
+elev <- rast("C:\\Users\\kdaust\\AppData\\Local/R/cache/R/climRpnw/inputs_pkg/normal/Normal_1961_1990MP/dem/dem2_WNA.nc")
+wna_grid2 <- vect(wna_grid)
+tmp_elev <- terra::extract(elev,wna_grid2)
 
-
-elev <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_SRT_30m.tif") ##I used a 1km DEM - if you have a higher res one could use that
+coords <- geom(wna_grid2, df = T)
+setDT(coords)
+coords[,c("part","hole","geom") := NULL]
+coords[,elev := tmp_elev[,2]]
+coords[,id := seq_along(elev)]
+fwrite(coords2, "WNA_2km_grid_WHM2.csv")
+toc()
 
 ###Chunk making sure the extent were matching
 # wna_mask <- vect(wna_bgc)
@@ -103,6 +89,30 @@ elev <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_SRT_30m.tif") ##I used a 1km D
 # fwrite(coords, "WNA_2km_grid.csv")
 # toc()
 # coords <- fread("WNA_2km_grid.csv")
+
+# wna_bgc <- vect("D:/CommonTables/BGC_maps/WNA_BGC_v12_5Apr2022.gpkg")
+# 
+# coords <- fread("WNA_2km_grid_WHM.csv")
+# pts <- vect(coords, geom=c("long","lat"), crs = "epsg:4326")
+# pts <- project(pts, "epsg:3005")
+# pts2 <- crop(pts, ext(wna_bgc))
+# pts2 <- project(pts2, "epsg:4326")
+# 
+# coords2 <- geom(pts2, df = T)
+# setDT(coords2)
+# coords2[,c("part","hole","geom") := NULL]
+# coords2[,elev := pts2$elev]
+# coords2[,id := seq_along(elev)]
+# fwrite(coords2, "WNA_2km_grid_WHM2.csv")
+# 
+# 
+# wna_grid <- st_make_grid(wna_bgc, cellsize = 2000, what = "centers")
+# wna_grid <- st_as_sf(wna_grid)
+# wna_grid$id <- seq_along(wna_grid)
+# grid_bgc <- st_join(wna_grid,wna_bgc)
+# elev <- rast("C:\\Users\\kdaust\\AppData\\Local/R/cache/R/climRpnw/inputs_pkg/normal/Normal_1961_1990MP/dem/dem2_WNA.nc") ##I used a 1km DEM - if you have a higher res one could use that
+# elev2 <- terra::project(elev, "epsg:3005")
+
 ```
 
 ```{r}
@@ -110,12 +120,8 @@ library(climRdev)
 library(terra)
 coords <- fread("C:/Users/kdaust/Government of BC/External Future Forest Ecosystems Centre - Kiri/WNA_BGC/WNA_2km_grid_WHM.csv")
 coords <- fread("WNA_2km_grid_WHM.csv")
-coords <- as.data.frame(coords)# %>% dplyr::rename(long = 1, lat = 2)
-# pts <- vect(coords, geom = c("long","lat"), crs = "epsg:4326")
-# writeVector(pts,"Will_Pts.gpkg")
-
 setcolorder(coords, c("long","lat","elev","id"))
-coords <- as.data.frame(coords) #%>% dplyr::filter(elev >-1)
+coords <- as.data.frame(coords)# %>% dplyr::rename(long = 1, lat = 2)
 
 thebb <- climRdev::get_bb(coords) ##get bounding box based on input points
 dbCon <- data_connect() ##connect to database
