@@ -119,27 +119,15 @@ toc()
 library(climRdev)
 library(terra)
 coords <- fread("C:/Users/kdaust/Government of BC/External Future Forest Ecosystems Centre - Kiri/WNA_BGC/WNA_2km_grid_WHM.csv")
-coords <- fread("WNA_2km_grid_WHM.csv")
-setcolorder(coords, c("long","lat","elev","id"))
+coords <- coords[!is.na(elev),]
+#coords <- fread("WNA_2km_grid_WHM.csv")
+#setcolorder(coords, c("long","lat","elev","id"))
 coords <- as.data.frame(coords)# %>% dplyr::rename(long = 1, lat = 2)
 
-thebb <- climRdev::get_bb(coords) ##get bounding box based on input points
-dbCon <- data_connect() ##connect to database
-#thebb <- c(60.0033688541466, 38.9909731490503, -107.993162013109, -139.037335926101)
-normal <- climRdev::normal_input_postgis(dbCon = dbCon, normal = "normal_na", bbox = thebb, cache = TRUE) ##this takes a couple mins the first time it downloads
-plot(normal[[31]])
+## based on vs_final below
+vars_needed <- c("DD5","DD_0_at","DD_0_wt","PPT05","PPT06","PPT07","PPT08","PPT09","CMD","PPT_at","PPT_wt","CMD07","SHM", "AHM", "NFFD", "PAS", "CMI")
 
-## based on vs_final below. climr doesn't have CMI - might need to add that in
-vars_needed <- c("DD5","DD_0_at","DD_0_wt","PPT05","PPT06","PPT07","PPT08","PPT09","CMD","PPT_at","PPT_wt","CMD07","SHM", "AHM", "NFFD", "PAS")
-
-##return_normal = T returns 1961-1990 period
-clim_vars <- downscale(
-  xyz = coords,
-  normal = normal,
-  return_normal = TRUE,
-  vars = vars_needed
-)
-
+clim_vars <- climr_downscale(coords, which_normal = "auto", return_normal = TRUE, vars = vars_needed, cache = TRUE)
 setDT(clim_vars)
 clim_vars <- clim_vars[!is.nan(PPT05),] ##lots of points in the ocean
 ```
