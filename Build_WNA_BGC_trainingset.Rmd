@@ -115,12 +115,38 @@ toc()
 
 ```
 
+```{r addvars}
+addVars <- function(dat){
+  dat[,PPT_MJ := PPT05 + PPT06]
+  dat[,PPT_JAS := PPT07 + PPT08 + PPT09]
+  dat[,PPT.dormant := PPT_at + PPT_wt]
+  dat[,CMD.def := 500 - PPT.dormant]
+  dat[CMD.def < 0, CMD.def := 0]
+  dat[,CMDMax := CMD07]
+  dat[,CMD.total := CMD.def + CMD]
+  dat[,DD_delayed := ((DD_0_at + DD_0_wt)*0.0238) - 1.8386]
+  dat[DD_delayed < 0, DD_delayed := 0]
+}
+
+```
+
 ```{r}
 library(climRdev)
 library(terra)
 
 coords <- fread("C:/Users/kdaust/Government of BC/External Future Forest Ecosystems Centre - Kiri/WNA_BGC/WNA_2km_grid_WHM.csv")
 coords <- coords[!is.na(elev),]
+coords_sf <- st_as_sf(coords, coords = c("x","y"), crs = 4326)
+coords_sf$elev <- NULL
+coords_sf <- st_transform(coords_sf, 3005)
+
+bgcs <- st_read("C:/Users/kdaust/Government of BC/External Future Forest Ecosystems Centre - Kiri/WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
+
+coords_bgc <- st_join(coords_sf, bgcs)
+coords_bgc <- data.table(coords_bgc[,c("id","BGC")])
+coords_bgc[,geometry := NULL]
+coords_bgc <- coords_bgc[!is.na(BGC),]
+
 #coords <- fread("WNA_2km_grid_WHM.csv")
 #setcolorder(coords, c("long","lat","elev","id"))
 coords <- as.data.frame(coords)# %>% dplyr::rename(long = 1, lat = 2)
@@ -132,15 +158,13 @@ vars_needed <- c("DD5","DD_0_at","DD_0_wt","PPT05","PPT06","PPT07","PPT08","PPT0
 clim_vars <- climr_downscale(coords, which_normal = "auto", return_normal = TRUE, vars = vars_needed, cache = TRUE)
 setDT(clim_vars)
 clim_vars <- clim_vars[!is.nan(PPT05),] ##lots of points in the ocean
+clim_vars[coords_bgc, BGC := i.BGC, on = c(ID = "id")]
+clim_vars <- clim_vars[!is.na(BGC),]
+fwrite(clim_vars,"Training_Data_Raw.csv")
+clim_vars[,PERIOD := NULL]
+clim_vars[,ID := NULL]
 ```
 
-```{r load and prep training data}
-#X0 <- fread("./inputs/training_data/WNAv12_2km_Hex_Pts_Normal_1961_1990MSY_3.csv")
-X0 <- fread("./inputs/WNA_4k_HexPts_BGC_NoSampleRemoved2_Normal_1961_1990MSY.csv")# %>% rename(BGC = ID2)# %>% dplyr::filter(!(BGC == "MHmm2" & Latitude > 
-
-IDVars <- X0[, .(ID1, Latitude, Longitude)]
-##______________
-```
 
 Create different model variable sets
 v1=all
@@ -152,7 +176,6 @@ vs9 = reduced 35 for biologial variable reduction to 19
 vs10+ = testing effects and final set
 
 ```{r create variable sets}
-modelvars <- colnames(X0)[-1]
 vs_final <- c("DD5", "DD_delayed",
           "PPT_MJ", "PPT_JAS", 
          "CMD.total", "CMI", "CMDMax",
@@ -164,70 +187,74 @@ vs_final <- c("DD5", "DD_delayed",
 
 
 ```{r reduce variables}
-X0 <- addVars(X0)
-X_test <- X0[, c("ID1", "BGC", vs_final), with = F] 
-X_test <- left_join(X_test, IDVars)
-fwrite(X_test, "./outputs/TrainSet_georef.csv")
-X0 <-
-  X0[, c("ID1", "BGC", vs_final), with = F] 
+addVars(clim_vars)
+X_train <- clim_vars[,c("BGC",vs_final), with = F]
 
-
-## select the variable set here
-count_tp <- X0 %>% dplyr::count(BGC)
-#X0 <- X0 %>% filter(!BGC == "ESSFab")
-
+BGC_counts <- X_train[,.(Num = .N), by = .(BGC)]
 ```
-
-
 
 
 The preprocessing function from the caret package was used to identify variables with near-zero variance or correlation >0.90 in the combined data set. These variables were removed leaving a final variable set of 20 variables.
 ```{r reduce variables, warning=FALSE} 
-
-# # calculate correlation matrix of variables
-  correlationMatrix <- cor(X0[,-c(1:2)])
+library(caret)
+  correlationMatrix <- cor(X_train[,!"BGC"])
   highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.7, verbose = TRUE, names = TRUE) ## review for removal of highly correlated vars
    highlyCorrelated
 
 ```
 
 ```{r remove poor BGCs}
-badbgs <- c("BWBSvk", "ICHmc1a", "MHun", "SBSun", "ESSFun", "SWBvk","MSdm3","ESSFdc3", "IDFdxx_WY", "MSabS", "FGff", "JPWmk_WY" )#, "ESSFab""CWHws2", "CWHwm", "CWHms1" , 
-X0 <- X0 %>%  filter(!BGC %in% badbgs)
-BGCunits <- X0 %>% arrange(BGC) %>% select(BGC)
-BGCunits <- unique(BGCunits$BGC)
-```
-
-```{r add in BGC Zone info}
-BGCZone <- fread(paste0(cloud_dir,"All_BGCs_Info_v12_10.csv"), data.table=FALSE) %>% dplyr::select(Zone, BGC)
-XAll <- left_join(X0, BGCZone) %>% dplyr::select(ID1, Zone, BGC, everything()) %>% dplyr::filter(!DD5 == -9999)
+badbgcs <- c("BWBSvk", "ICHmc1a", "MHun", "SBSun", "ESSFun", "SWBvk","MSdm3","ESSFdc3", "IDFdxx_WY", "MSabS", "FGff", "JPWmk_WY" )#, "ESSFab""CWHws2", "CWHwm", "CWHms1" , 
+X_sub <- X_train[!BGC %in% badbgcs,]
 
 ```
-
 
 
 The new rebalanced training set is 310 668 points. This training set is submitted to ranger to generate a final climate model of BGCs for western north america.
 
 ```{r final training sets}
-XAll <- as.data.frame(XAll) 
-X2 <- removeOutlier(XAll, alpha = .025, numIDvars = 3) ###set alpha for removal of outliers (2.5% = 3SD)
- count_tp <- X2 %>% dplyr::count(BGC)
-X_removed <- XAll[!XAll$ID1 %in% X2$ID1,] %>% select(ID1, BGC)
- X_removed <- left_join(X_removed, IDVars)
-fwrite( X_removed , "./outputs/RemovedOutliersTrainingSet_georef.csv")
-  X_test <- as.data.frame(X_test) 
-X_test_final <- removeOutlier(X_test, alpha = .025, numIDvars = 4) ###set alpha for removal of outliers (2.5% = 3SD)
- count_test <- X_test_final %>% dplyr::count(BGC)
-
- X_test_removed <- X_test[!X_test$ID1 %in% X_test_final$ID1,]
- 
-fwrite(X_test_final, "./outputs/FinalReducedTrainingSet_georef2.csv")
+library(foreach)
+X_sub <- as.data.frame(X_sub)
+X2 <- removeOutlier(X_sub, alpha = .025, numIDvars = 1) ###set alpha for removal of outliers (2.5% = 3SD)
 ```
 
 ````{r remove very small units}
 XAll <- as.data.table(X2)
 BGC_Nums <- XAll[,.(Num = .N), by = BGC]
-BGC_good <- XAll[!BGC %in% BGC_Nums[Num < 10, BGC],]##remove BGCs with low numbers of points
-count_tp <- BGC_good %>% dplyr::count(BGC)
-
+BGC_good <- XAll[!BGC %in% BGC_Nums[Num < 30, BGC],]##remove BGCs with low numbers of points
+fwrite(BGC_good, "Clean_traning_data.csv")
+BGC_good <- fread("Clean_traning_data.csv")
 `````
+
+```{r balance}
+library(tidymodels)
+require(themis)
+
+BGCbalance_recipe <-  recipe(BGC ~ ., data =  BGC_good) %>%
+    step_downsample(BGC, under_ratio = 90) %>%
+    step_smote(BGC, over_ratio = .1, neighbors = 8) %>% 
+    prep()
+X_balanced <- BGCbalance_recipe  %>% juice()
+setDT(X_balanced)
+BGC_Nums <- X_balanced[,.(Num = .N), by = BGC]
+```
+
+```{r train model}
+library(ranger)
+BGC_good[,BGC := as.factor(BGC)]
+
+BGCmodel <- ranger(
+  BGC ~ .,
+  data = BGC_good,
+  num.trees = 501,
+  splitrule =  "extratrees",
+  mtry = 4,
+  min.node.size = 2,
+  importance = "permutation",
+  write.forest = TRUE,
+  classification = TRUE,
+  probability = FALSE
+)
+save(BGCmodel, file = "BGCModel_Extratrees_FullData.Rdata")
+
+```
