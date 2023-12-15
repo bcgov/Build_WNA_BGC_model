@@ -1,0 +1,58 @@
+---
+title: "Climate Feature Engineering"
+author: "Will MacKenzie"
+date: "2023-12-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## This script compares the climate attributes between WNA_BGCs. Graphical look at variables, transform of variables, and feature engineering to develop the best set of variables for mapping and future forecasting of BGC climate envelopes
+
+Import data
+```{r}
+
+```
+
+
+### 2-variable scatter plots to compare BGC averages of broader climate groups.
+Start by looking at the thresholds and types from Klinka et al 2000
+```{r import tables, echo=FALSE, message = FALSE}
+###Climate data 1961-90for representative points per BGC  with all variables
+#allDat <- fread("./inputs/ALLBGC_AllVars.csv", data.table = FALSE, stringsAsFactors = FALSE)
+allDat <- fread("D:/CommonTables/HexGrids/WNA_4k_HexPts_BGCv12_Normal_1961_1990MSY_reduced6Sept2021.csv",  stringsAsFactors = FALSE,data.table = FALSE) %>% mutate(zone = 
+stringr::str_extract(BGC, "\\b[A-Z]+")) %>% dplyr::select(-Tave_sm, -Tave_sp,-Tave_at,-Tave_wt)
+
+climate <- allDat %>%  
+  mutate(temp_ten = rowSums(across(starts_with("Tave"), ~ .x>10)))%>% 
+  mutate(temp_zero = rowSums(across(starts_with("Tave"), ~ .x<0)))%>%  dplyr::select(BGC, temp_ten, temp_zero, MWMT, MCMT) %>% group_by(BGC)  %>%   mutate(MWMT= mean(MWMT), MCMT = mean(MCMT), na.rm = TRUE, keep = T) %>% 
+  dplyr::select(BGC, temp_ten, temp_zero, MCMT, MWMT) %>% distinct(BGC, .keep_all=T)
+
+climate.grps <- fread("./inputs/WNAv12_SubZone_Groups.csv")
+climate <- left_join(climate,climate.grps)
+climate2 <- climate #%>% filter(group %in% c("temperate", "temperate-warm"))
+                                                                                                             
+ggplot(climate2, aes(x=MCMT, y=MWMT, colour = group))+
+  geom_jitter()+
+  scale_color_brewer(palette = "RdYlBu")+
+  geom_text_repel(size = 3, aes(label = BGC), max.overlaps = 20)+
+  geom_hline(yintercept = 10)+
+  geom_hline(yintercept = 20)+ 
+   geom_hline(yintercept = 12)+  
+geom_vline(xintercept = 0)+
+  geom_vline(xintercept = -3)+
+    geom_segment(x= -10 , xend = -10, y=12 , yend = 17.5, colour = "black")
+```summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
