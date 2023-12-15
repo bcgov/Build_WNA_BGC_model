@@ -46,90 +46,49 @@ To
 
 Points from a 4km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
 
-
-```{r}
+### This chunk can be run a single time to build grid of points with elevation and save for reuse.
+```{r build grid and add elevation}
 library(terra)
 library(data.table)
-
 require(tictoc)
+
 tic()
-wna_bgc <- st_read("D:/CommonTables/BGC_Maps/WNA_BGC_v12_5Apr2022.gpkg")#
-#wna_bgc <- st_read("../WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
+wna_bgc <- st_read("D:/CommonTables/BGC_Maps/WNA_BGC_v12_5Apr2022.gpkg")
+wna_bgc2 <- vect("D:/CommonTables/BGC_Maps/WNA_BGC_v12_5Apr2022.gpkg") %>% terra::project("EPSG:4326")
 wna_grid <- st_make_grid(wna_bgc, cellsize = 2000, what = "centers") %>% st_transform(crs = 4326)
-elev <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_SRT_30m.tif") ##I used a 1km DEM - if you have a higher res one could use that
-#elev <- rast("C:\\Users\\kdaust\\AppData\\Local/R/cache/R/climRpnw/inputs_pkg/normal/Normal_1961_1990MP/dem/dem2_WNA.nc")
+elev <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_SRT_30m.tif") 
 wna_grid2 <- vect(wna_grid)
 tmp_elev <- terra::extract(elev,wna_grid2)
-
 coords <- geom(wna_grid2, df = T)
-setDT(coords)
-coords[,c("part","hole","geom") := NULL]
-coords[,elev := tmp_elev[,2]]
-coords[,id := seq_along(elev)]
-fwrite(coords, "WNA_2km_grid_WHM.csv")
+coords_only <- coords %>% dplyr::select(x,y)
+bgc_coords <- terra::extract(wna_bgc2,coords_only) %>% dplyr::select(BGC)
+coords2 <- cbind(bgc_coords, coords)# %>% tidyr::drop_na()
+## add BGC
+setDT(coords2)
+coords2[,c("part","hole","geom") := NULL]
+coords2[,elev := tmp_elev[,2]]
+coords2[,id := seq_along(elev)]
+fwrite(coords2, "WNA_2km_grid_BGC.csv")
 toc()
-###236 seconds
-###Chunk making sure the extent were matching
-# wna_mask <- vect(wna_bgc)
-# wna_mask <- project(wna_mask, "EPSG:4326")
-#elev <- crs(elev) <- "epsg:4326" 
-# dem_crop <- crop(elev, wna_mask, snap="near", mask=FALSE, touches=TRUE, extend=FALSE, filename="D:/CommonTables/DEMs/WNA_DEM_SRT_30m_cropped.tif")
-
-#elev2 <- terra::project(elev, "epsg:3005") ## this projection may not be suitable for all WNA
-# pts <- vect(wna_grid)
-# tmp_elev <- terra::extract(elev,pts)
-# #pts_4326 <- project(pts, "epsg:4326")
-# #coords <- geom(pts_4326,df = TRUE)
-# coords <- geom(pts,df = TRUE)
-# coords <- coords[,c("geom","x","y")]
-# coords <- data.table(coords)
-# coords[, elev := tmp_elev$WNA_DEM_SRT_30m]
-# coords <- coords[!is.na(elev),]
-# setnames(coords, c("id","long","lat","elev"))
-# fwrite(coords, "WNA_2km_grid.csv")
-# toc()
-# coords <- fread("WNA_2km_grid.csv")
-
-# wna_bgc <- vect("D:/CommonTables/BGC_maps/WNA_BGC_v12_5Apr2022.gpkg")
-# 
-# coords <- fread("WNA_2km_grid_WHM.csv")
-# pts <- vect(coords, geom=c("long","lat"), crs = "epsg:4326")
-# pts <- project(pts, "epsg:3005")
-# pts2 <- crop(pts, ext(wna_bgc))
-# pts2 <- project(pts2, "epsg:4326")
-# 
-# coords2 <- geom(pts2, df = T)
-# setDT(coords2)
-# coords2[,c("part","hole","geom") := NULL]
-# coords2[,elev := pts2$elev]
-# coords2[,id := seq_along(elev)]
-# fwrite(coords2, "WNA_2km_grid_WHM2.csv")
-# 
-# 
-# wna_grid <- st_make_grid(wna_bgc, cellsize = 2000, what = "centers")
-# wna_grid <- st_as_sf(wna_grid)
-# wna_grid$id <- seq_along(wna_grid)
-# grid_bgc <- st_join(wna_grid,wna_bgc)
-# elev <- rast("C:\\Users\\kdaust\\AppData\\Local/R/cache/R/climRpnw/inputs_pkg/normal/Normal_1961_1990MP/dem/dem2_WNA.nc") ##I used a 1km DEM - if you have a higher res one could use that
-# elev2 <- terra::project(elev, "epsg:3005")
+###260 seconds
+count_tp <- coords2 %>% dplyr::count(BGC)
 
 ```
 
-```{r}
+### Use climR to add downscaled climate data to points
+```{r Add downscaled climate variables to each point}
 library(climRdev)
 library(terra)
-# coords <- fread("C:/Users/kdaust/Government of BC/External Future Forest Ecosystems Centre - Kiri/WNA_BGC/WNA_2km_grid_WHM.csv")
-coords <- fread("WNA_2km_grid_WHM.csv")%>% dplyr::rename(long = 1, lat = 2)
-setcolorder(coords, c("long","lat","elev","id"))
-coords <- as.data.frame(coords)# 
-
+coords <- fread("WNA_2km_grid_BGC.csv")%>% dplyr::rename(long = x, lat = y)
+setcolorder(coords, c("BGC", "long","lat","elev","id"))
+coords <- as.data.frame(coords) %>% tidyr::drop_na()# 
 thebb <- climRdev::get_bb(coords) ##get bounding box based on input points
 dbCon <- data_connect() ##connect to database
-#thebb <- c(60.0033688541466, 38.9909731490503, -107.993162013109, -139.037335926101)
-normal <- climRdev::normal_input_postgis(dbCon = dbCon, normal = "normal_na", bbox = thebb, cache = TRUE) ##this takes a couple mins the first time it downloads
-plot(normal[[31]])
 
-## based on vs_final below. climr doesn't have CMI - might need to add that in
+### normal = "" is for setting the PRISM scale normal_na is 4km and normal_bc is 80m
+normal <- climRdev::normal_input_postgis(dbCon = dbCon, normal = "normal_na", bbox = thebb, cache = TRUE) ##this takes a couple mins the first time it downloads
+vars_needed <- "list_variables()"
+## if known choose shorter variable list for downscaling
 vars_needed <- c("DD5","DD_0_at","DD_0_wt","PPT05","PPT06","PPT07","PPT08","PPT09","CMD","PPT_at","PPT_wt","CMD07","SHM", "AHM", "NFFD", "PAS")
 
 ##return_normal = T returns 1961-1990 period
@@ -141,7 +100,7 @@ clim_vars <- downscale(
 )
 
 setDT(clim_vars)
-clim_vars <- clim_vars[!is.nan(PPT05),] ##lots of points in the ocean
+clim_vars <- clim_vars[!is.nan(PPT05),]
 ```
 
 ```{r load and prep training data}
