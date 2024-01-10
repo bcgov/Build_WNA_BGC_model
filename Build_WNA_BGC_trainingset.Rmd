@@ -213,7 +213,6 @@ BGC_Nums <- X_balanced[,.(Num = .N), by = BGC]
 
 ```{r train model}
 BGC_good[, BGC := as.factor(BGC)]
-BGC_good[,BGC := as.factor(BGC)]
 
 BGCmodel <- ranger(
   BGC ~ .,
