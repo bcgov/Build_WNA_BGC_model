@@ -9,16 +9,24 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, message = FALSE)
-require (smotefamily)
-require(data.table)
-library(randtoolbox)
-library(clhs)
-library(ggplot2)
-require(sf)
-require(caret)
-require(ranger)
-require(climRdev)
-# 
+Require::Require(c(
+  "bcgov/climr@devl", 
+  "caret", 
+  "clhs", 
+  "data.table", 
+  "foreach", 
+  "ggplot2", 
+  "Microsoft365R",
+  "randtoolbox", 
+  "ranger", 
+  "reproducible",
+  "sf", 
+  "smotefamily", 
+  "terra", 
+  "themis",
+  "tictoc", 
+  "tidymodels"
+))
 source("R/utils.R")
 # library(climRdev)
 # thebb <- c(55.38847, 54.61025, -126.94957, -127.7162)
@@ -49,10 +57,6 @@ Points from a 4km hex grid of western north america are generated in R and submi
 
 
 ```{r}
-library(terra)
-library(data.table)
-
-require(tictoc)
 tic()
 wna_bgc <- st_read("D:/CommonTables/BGC_Maps/WNA_BGC_v12_5Apr2022.gpkg")#
 #wna_bgc <- st_read("../WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
@@ -117,9 +121,6 @@ toc()
 ```
 
 ```{r}
-library(climRdev)
-library(terra)
-
 coords <- fread("C:/Users/kdaust/Government of BC/External Future Forest Ecosystems Centre - Kiri/WNA_BGC/WNA_2km_grid_WHM.csv")
 coords <- coords[!is.na(elev),]
 coords_sf <- st_as_sf(coords, coords = c("x","y"), crs = 4326)
@@ -168,7 +169,6 @@ BGC_counts <- X_train[,.(Num = .N), by = .(BGC)]
 
 The preprocessing function from the caret package was used to identify variables with near-zero variance or correlation >0.90 in the combined data set. These variables were removed leaving a final variable set of 20 variables.
 ```{r reduce variables, warning=FALSE} 
-library(caret)
   correlationMatrix <- cor(X_train[,!"BGC"])
   highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.7, verbose = TRUE, names = TRUE) ## review for removal of highly correlated vars
    highlyCorrelated
@@ -185,7 +185,6 @@ X_sub <- X_train[!BGC %in% badbgcs,]
 The new rebalanced training set is 310 668 points. This training set is submitted to ranger to generate a final climate model of BGCs for western north america.
 
 ```{r final training sets}
-library(foreach)
 X_sub <- as.data.frame(X_sub)
 X2 <- removeOutlier(X_sub, alpha = .025, numIDvars = 1) ###set alpha for removal of outliers (2.5% = 3SD)
 ```
@@ -196,8 +195,8 @@ BGC_good <- rmLowSampleBGCs(X2) |>
 ```
 
 ```{r balance}
-library(tidymodels)
-require(themis)
+BGCbalance_recipe <- recipe(BGC ~ ., data =  BGC_good) |>
+  step_downsample(BGC, under_ratio = 90) |>
 
 BGCbalance_recipe <-  recipe(BGC ~ ., data =  BGC_good) %>%
     step_downsample(BGC, under_ratio = 90) %>%
