@@ -207,7 +207,7 @@ BGCbalance_recipe <- recipe(BGC ~ ., data =  BGC_good) |>
 X_balanced <- BGCbalance_recipe |>
   juice()
 setDT(X_balanced)
-BGC_Nums <- X_balanced[,.(Num = .N), by = BGC]
+BGC_Nums <- X_balanced[,.(Num = .N), by = BGC]   ## this is not being used.
 ```
 
 ```{r train model}
