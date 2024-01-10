@@ -27,6 +27,9 @@ Require::Require(c(
   "tictoc", 
   "tidymodels"
 ))
+
+options(reproducible.cachePath = "reproducible.cache/")
+
 source("R/utils.R")
 # library(climRdev)
 # thebb <- c(55.38847, 54.61025, -126.94957, -127.7162)
@@ -222,7 +225,6 @@ BGCmodel <- ranger(
   write.forest = TRUE,
   classification = TRUE,
   probability = FALSE
-)
-save(BGCmodel, file = "BGCModel_Extratrees_FullData.Rdata")
-
+) |>
+  Cache(.)
 ```
