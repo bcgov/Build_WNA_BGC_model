@@ -128,27 +128,13 @@ coords_sf <- st_transform(coords_sf, 3005)
 
 bgcs <- st_read("C:/Users/kdaust/Government of BC/External Future Forest Ecosystems Centre - Kiri/WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
 
-coords_bgc <- st_join(coords_sf, bgcs)
-coords_bgc <- data.table(coords_bgc[,c("id","BGC")])
-coords_bgc[,geometry := NULL]
-coords_bgc <- coords_bgc[!is.na(BGC),]
-
-#coords <- fread("WNA_2km_grid_WHM.csv")
-#setcolorder(coords, c("long","lat","elev","id"))
-coords <- as.data.frame(coords)# %>% dplyr::rename(long = 1, lat = 2)
-
 ## based on vs_final below
 vars_needed <- c("DD5","DD_0_at","DD_0_wt","PPT05","PPT06","PPT07","PPT08","PPT09","CMD","PPT_at","PPT_wt","CMD07","SHM", "AHM", "NFFD", "PAS", "CMI")
 
-##turned it into one function
-clim_vars <- climr_downscale(coords, which_normal = "auto", return_normal = TRUE, vars = vars_needed, cache = TRUE)
-setDT(clim_vars)
-clim_vars <- clim_vars[!is.nan(PPT05),] ##lots of points in the ocean
-clim_vars[coords_bgc, BGC := i.BGC, on = c(ID = "id")]
-clim_vars <- clim_vars[!is.na(BGC),]
-fwrite(clim_vars,"Training_Data_Raw.csv")
-clim_vars[,PERIOD := NULL]
-clim_vars[,ID := NULL]
+clim_vars <- getClimate(coords, bgcs,
+                       which_normal = "auto", return_normal = TRUE, 
+                       vars = vars_needed, cache = TRUE) |>
+  Cache(.)
 ```
 
 
@@ -204,13 +190,10 @@ X_sub <- as.data.frame(X_sub)
 X2 <- removeOutlier(X_sub, alpha = .025, numIDvars = 1) ###set alpha for removal of outliers (2.5% = 3SD)
 ```
 
-````{r remove very small units}
-XAll <- as.data.table(X2)
-BGC_Nums <- XAll[,.(Num = .N), by = BGC]
-BGC_good <- XAll[!BGC %in% BGC_Nums[Num < 30, BGC],]##remove BGCs with low numbers of points
-fwrite(BGC_good, "Clean_traning_data.csv")
-BGC_good <- fread("Clean_traning_data.csv")
-`````
+```{r remove very small units}
+BGC_good <- rmLowSampleBGCs(X2) |>
+  Cache(.)
+```
 
 ```{r balance}
 library(tidymodels)
