@@ -165,7 +165,7 @@ vs_final <- c("DD5", "DD_delayed",
 
 ```{r reduce variables}
 addVars(clim_vars)
-X_train <- clim_vars[,c("BGC",vs_final), with = F]
+X_train <- clim_vars[, .SD, .SDcols = c("BGC", vs_final)]
 
 BGC_counts <- X_train[, .(Num = .N), by = .(BGC)]
 ```
