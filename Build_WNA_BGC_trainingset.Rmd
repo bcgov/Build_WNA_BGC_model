@@ -47,6 +47,7 @@ source("R/utils.R")
 # cloud_dir <- "F:/OneDrive - Government of BC/CCISSv12/latest_CCISS_tool_files/"
 
 ```
+
 # General process
 Build a grid of points for WNA and attribute with data from ClimateBC for BC and ClimateNA for rest. A 2km grid seems to provide enough training points for most BGCs. Large non-vegetation land areas are excluded (lakes and glaciers primarily)
 There are areas where BGC mapping represents local effects represented by small polygons and these are removed (2km2) or are coast transition areas that are poorly mapped and climte modelled (inland polygons of CWH)
@@ -136,8 +137,8 @@ bgcs <- st_read("C:/Users/kdaust/Government of BC/External Future Forest Ecosyst
 vars_needed <- c("DD5","DD_0_at","DD_0_wt","PPT05","PPT06","PPT07","PPT08","PPT09","CMD","PPT_at","PPT_wt","CMD07","SHM", "AHM", "NFFD", "PAS", "CMI")
 
 clim_vars <- getClimate(coords, bgcs,
-                       which_normal = "auto", return_normal = TRUE, 
-                       vars = vars_needed, cache = TRUE) |>
+                        which_normal = "auto", return_normal = TRUE, 
+                        vars = vars_needed, cache = TRUE) |>
   Cache(.)
 ```
 
@@ -153,11 +154,11 @@ vs10+ = testing effects and final set
 
 ```{r create variable sets}
 vs_final <- c("DD5", "DD_delayed",
-          "PPT_MJ", "PPT_JAS", 
-         "CMD.total", "CMI", "CMDMax",
-         "SHM", "AHM", 
-            "NFFD", 
-          "PAS")
+              "PPT_MJ", "PPT_JAS", 
+              "CMD.total", "CMI", "CMDMax",
+              "SHM", "AHM", 
+              "NFFD", 
+              "PAS")
 
 ```
 
@@ -166,22 +167,22 @@ vs_final <- c("DD5", "DD_delayed",
 addVars(clim_vars)
 X_train <- clim_vars[,c("BGC",vs_final), with = F]
 
-BGC_counts <- X_train[,.(Num = .N), by = .(BGC)]
+BGC_counts <- X_train[, .(Num = .N), by = .(BGC)]
 ```
 
 
 The preprocessing function from the caret package was used to identify variables with near-zero variance or correlation >0.90 in the combined data set. These variables were removed leaving a final variable set of 20 variables.
 ```{r reduce variables, warning=FALSE} 
-  correlationMatrix <- cor(X_train[,!"BGC"])
-  highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.7, verbose = TRUE, names = TRUE) ## review for removal of highly correlated vars
-   highlyCorrelated
+correlationMatrix <- cor(X_train[,!"BGC"])
+highlyCorrelated <- findCorrelation(correlationMatrix, cutoff = 0.7, 
+                                    verbose = TRUE, names = TRUE) ## review for removal of highly correlated vars
+highlyCorrelated
 
 ```
 
 ```{r remove poor BGCs}
 badbgcs <- c("BWBSvk", "ICHmc1a", "MHun", "SBSun", "ESSFun", "SWBvk","MSdm3","ESSFdc3", "IDFdxx_WY", "MSabS", "FGff", "JPWmk_WY" )#, "ESSFab""CWHws2", "CWHwm", "CWHms1" , 
 X_sub <- X_train[!BGC %in% badbgcs,]
-
 ```
 
 
@@ -211,7 +212,7 @@ BGC_Nums <- X_balanced[,.(Num = .N), by = BGC]
 ```
 
 ```{r train model}
-library(ranger)
+BGC_good[, BGC := as.factor(BGC)]
 BGC_good[,BGC := as.factor(BGC)]
 
 BGCmodel <- ranger(
