@@ -19,6 +19,7 @@ require(caret)
 require(ranger)
 require(climRdev)
 # 
+source("R/utils.R")
 # library(climRdev)
 # thebb <- c(55.38847, 54.61025, -126.94957, -127.7162)
 # dbCon <- data_connect()
@@ -112,21 +113,6 @@ toc()
 # grid_bgc <- st_join(wna_grid,wna_bgc)
 # elev <- rast("C:\\Users\\kdaust\\AppData\\Local/R/cache/R/climRpnw/inputs_pkg/normal/Normal_1961_1990MP/dem/dem2_WNA.nc") ##I used a 1km DEM - if you have a higher res one could use that
 # elev2 <- terra::project(elev, "epsg:3005")
-
-```
-
-```{r addvars}
-addVars <- function(dat){
-  dat[,PPT_MJ := PPT05 + PPT06]
-  dat[,PPT_JAS := PPT07 + PPT08 + PPT09]
-  dat[,PPT.dormant := PPT_at + PPT_wt]
-  dat[,CMD.def := 500 - PPT.dormant]
-  dat[CMD.def < 0, CMD.def := 0]
-  dat[,CMDMax := CMD07]
-  dat[,CMD.total := CMD.def + CMD]
-  dat[,DD_delayed := ((DD_0_at + DD_0_wt)*0.0238) - 1.8386]
-  dat[DD_delayed < 0, DD_delayed := 0]
-}
 
 ```
 
