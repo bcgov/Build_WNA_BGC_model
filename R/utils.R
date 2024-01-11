@@ -190,6 +190,7 @@ getClimate <- function(coords, bgcs, ...) {
   clim_vars[coords_bgc, BGC := i.BGC, on = "ID==id"]
   clim_vars <- clim_vars[!is.na(BGC), ]
   clim_vars[, PERIOD := NULL]
+  clim_vars[, id := ID]
   clim_vars[, ID := NULL]
   
   return(clim_vars)
