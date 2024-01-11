@@ -127,9 +127,6 @@ toc()
 ```{r}
 coords <- fread("//objectstore2.nrs.bcgov/ffec/CCISS_Working/WNA_BGC/WNA_2km_grid_WHM.csv")
 coords <- coords[!is.na(elev),]
-coords_sf <- st_as_sf(coords, coords = c("x","y"), crs = 4326)
-coords_sf$elev <- NULL
-coords_sf <- st_transform(coords_sf, 3005)
 
 bgcs <- st_read("//objectstore2.nrs.bcgov/ffec/CCISS_Working/WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
 

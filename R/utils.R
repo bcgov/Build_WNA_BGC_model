@@ -16,6 +16,14 @@
 getClimate <- function(coords, bgcs, ...) {
   dots <- list(...)
   
+  if (any(!c("x", "y", "elev", "id") %in% names(coords))) {
+    stop("coords mmust contain columns 'x', 'y', 'elev' and 'id'")
+  }
+  
+  coords_sf <- st_as_sf(coords, coords = c("x","y"), crs = 4326)
+  coords_sf$elev <- NULL
+  coords_sf <- st_transform(coords_sf, 3005)
+  
   coords_bgc <- st_join(coords_sf, bgcs)
   coords_bgc <- data.table(coords_bgc[,c("id","BGC")])
   coords_bgc[,geometry := NULL]
