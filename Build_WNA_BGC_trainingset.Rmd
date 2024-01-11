@@ -175,16 +175,16 @@ trainData <- rmLowSampleBGCs(trainData) |>
 ```
 
 ```{r balance}
-BGCbalance_recipe <- recipe(BGC ~ ., data =  trainData) |>
+dataBalance_recipe <- recipe(BGC ~ ., data =  trainData) |>
   step_downsample(BGC, under_ratio = 90) |>
   step_smote(BGC, over_ratio = .1, neighbors = 8) |> 
   prep()
 
-X_balanced <- BGCbalance_recipe |>
+trainData_balanced <- dataBalance_recipe |>
   juice()
 
-setDT(X_balanced)
-# BGC_Nums <- X_balanced[,.(Num = .N), by = BGC]   ## for inspection
+setDT(trainData_balanced)
+# BGC_Nums <- trainData_balanced[,.(Num = .N), by = BGC]   ## for inspection
 ```
 
 ```{r train model}
