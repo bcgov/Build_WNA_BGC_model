@@ -41,6 +41,27 @@ addVars <- function(dat) {
   dat[DD_delayed < 0, DD_delayed := 0]
 }
 
+logVars <- function(dat,
+                    elements = c("AHM", "CMD", "DD", "Eref", "FFP", "NFFD", "PAS", "PPT", "SHM", "CMI"),
+                    base = exp(1),
+                    zero_adjust = TRUE) {
+  
+  # Fields to operate on (generally these should be ratio (zero-limited) variable)
+  logFields <- grep(paste(elements, collapse = "|"), names(dat))
+  
+  # If specified by the user, give zero values a positive value that is one order of magnitude less than the minimum positive value
+  if (zero_adjust) {
+    dat[, (logFields) := lapply(.SD, function(x) {
+      x[x <= 0] <- base^(log(min(x[x > 0], na.rm = TRUE), base = base) - 1)
+      return(x)
+    }), .SDcols = logFields]
+  }
+  
+  # Perform log transformation
+  dat[, (logFields) := lapply(.SD, function(x) log(x, base = base)), .SDcols = logFields]
+  
+  return(dat)
+}
 
 removeOutlier <- function(dat, alpha,numIDvars){
   out <- foreach(curr = unique(as.character(dat$BGC)), .combine = rbind) %do% {
