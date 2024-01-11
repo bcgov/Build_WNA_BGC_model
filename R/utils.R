@@ -77,12 +77,10 @@ addVars <- function(dat) {
   dat[, PPT_MJ := PPT05 + PPT06]
   dat[, PPT_JAS := PPT07 + PPT08 + PPT09]
   dat[, PPT.dormant := PPT_at + PPT_wt]
-  dat[, CMD.def := 500 - PPT.dormant]
-  dat[CMD.def < 0, CMD.def := 0]
-  dat[, CMDMax := CMD07]
+  dat[, CMD.def := pmax(0, 500 - PPT.dormant)]
+  dat[, CMDMax := CMD07]   ## TODO: THIS IS NOT NECESSARILY CMD MAX
   dat[, CMD.total := CMD.def + CMD]
-  dat[, DD_delayed := ((DD_0_at + DD_0_wt)*0.0238) - 1.8386]
-  dat[DD_delayed < 0, DD_delayed := 0]
+  dat[, DD_delayed := pmax(0, ((DD_0_at + DD_0_wt)*0.0238) - 1.8386)]
 }
 
 #' Log-transform climate variables
