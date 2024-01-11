@@ -125,13 +125,13 @@ toc()
 ```
 
 ```{r}
-coords <- fread("C:/Users/kdaust/Government of BC/External Future Forest Ecosystems Centre - Kiri/WNA_BGC/WNA_2km_grid_WHM.csv")
+coords <- fread("//objectstore2.nrs.bcgov/ffec/CCISS_Working/WNA_BGC/WNA_2km_grid_WHM.csv")
 coords <- coords[!is.na(elev),]
 coords_sf <- st_as_sf(coords, coords = c("x","y"), crs = 4326)
 coords_sf$elev <- NULL
 coords_sf <- st_transform(coords_sf, 3005)
 
-bgcs <- st_read("C:/Users/kdaust/Government of BC/External Future Forest Ecosystems Centre - Kiri/WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
+bgcs <- st_read("//objectstore2.nrs.bcgov/ffec/CCISS_Working/WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
 
 ## based on vs_final below
 vars_needed <- c("DD5","DD_0_at","DD_0_wt","PPT05","PPT06","PPT07","PPT08","PPT09","CMD","PPT_at","PPT_wt","CMD07","SHM", "AHM", "NFFD", "PAS", "CMI")
