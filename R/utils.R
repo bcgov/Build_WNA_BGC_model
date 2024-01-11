@@ -162,7 +162,7 @@ getClimate <- function(coords, bgcs, ...) {
   
   coords_bgc <- st_join(coords_sf, bgcs)
   coords_bgc <- data.table(coords_bgc[,c("id","BGC")])
-  coords_bgc[,geometry := NULL]
+  coords_bgc[, geometry := NULL]
   coords_bgc <- coords_bgc[!is.na(BGC),]
   
   coords <- as.data.frame(coords)
