@@ -142,48 +142,33 @@ clim_vars <- getClimate(coords, bgcs,
   Cache(.)
 ```
 
+```{r reduce variables}
+clim_vars <- as.data.table(clim_vars)   ## this shouldn't be necesary, submit issue/reprex to reproducible.
+addVars(clim_vars)
 
-Create different model variable sets
-v1=all
-v2 = no months
-v3 = Biological Variables
-vs5 = 16var
-vs8 = 35 var
-vs9 = reduced 35 for biologial variable reduction to 19
-vs10+ = testing effects and final set
-
-```{r create variable sets}
 vs_final <- c("DD5", "DD_delayed",
               "PPT_MJ", "PPT_JAS", 
               "CMD.total", "CMI", "CMDMax",
               "SHM", "AHM", "NFFD", "PAS")
 
-```
+trainData <- clim_vars[, .SD, .SDcols = c("BGC", vs_final)]
+trainData <- trainData[complete.cases(trainData)]
 
-
-```{r reduce variables}
-addVars(clim_vars)
-X_train <- clim_vars[, .SD, .SDcols = c("BGC", vs_final)]
-X_train <- X_train[complete.cases(X_train)]
-
-BGC_counts <- X_train[, .(Num = .N), by = .(BGC)]
-```
-
-
-The preprocessing function from the caret package was used to identify variables with near-zero variance or correlation >0.90 in the combined data set. These variables were removed leaving a final variable set of 20 variables.
+# BGC_counts <- trainData[, .(Num = .N), by = .(BGC)]   ## for inspection
 ```
 
 ```{r remove poor BGCs}
 badbgcs <- c("BWBSvk", "ICHmc1a", "MHun", "SBSun", "ESSFun", "SWBvk","MSdm3","ESSFdc3", "IDFdxx_WY", "MSabS", "FGff", "JPWmk_WY" )#, "ESSFab""CWHws2", "CWHwm", "CWHms1" , 
-X_sub <- X_train[!BGC %in% badbgcs,]
+trainData <- trainData[!BGC %in% badbgcs,]
 ```
 
 
 The new rebalanced training set is 310 668 points. This training set is submitted to ranger to generate a final climate model of BGCs for western north america.
 
 ```{r final training sets}
-X_sub <- as.data.frame(X_sub)
-X2 <- removeOutlier(X_sub, alpha = .025, numIDvars = 1) ###set alpha for removal of outliers (2.5% = 3SD)
+## set alpha for removal of outliers (2.5% = 3SD)
+trainData <- removeOutlier(as.data.frame(trainData), alpha = .025, numIDvars = 1) |>
+  Cache(.)
 ```
 
 ```{r remove very small units}
