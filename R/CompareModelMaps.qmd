@@ -1,0 +1,104 @@
+---
+title: "Pairwise Model Comparison"
+format: html
+editor: visual
+---
+
+## Comparing Accuracy of Maps
+
+```{r} 
+#| echo: false
+
+library(data.table)
+library(terra)
+
+compare_maps <- function(mod1, mod2){
+  cwtab <- data.table(BGC = unique(c(mod1$BGC, mod2$BGC)))
+  cwtab[, bgc_id := 1:nrow(cwtab)]
+  cwtab[, Subzone := gsub("_.*","",BGC)]
+  cwtab[, Zone := gsub("[a-z]*_[A-Z]*","",BGC)]
+  cwtab[,zone_id := as.numeric(as.factor(Zone))]
+  cwtab[,subzone_id := as.numeric(as.factor(Subzone))]
+  
+  mod1 <- merge(mod1, cwtab, by = "BGC")
+  mod2 <- merge(mod2, cwtab, by = "BGC")
+  
+  ref_rast <- rast(mod1, resolution = 200)
+  ##subzone variants
+  rast1 <- rasterize(mod1, ref_rast, field = "bgc_id")
+  rast2 <- rasterize(mod2, ref_rast, field = "bgc_id")
+  rast1_sz <- subst(rast1, from = cwtab$bgc_id, to = cwtab$subzone_id)
+  rast2_sz <- subst(rast2, from = cwtab$bgc_id, to = cwtab$subzone_id)
+  rast1_z <- subst(rast1, from = cwtab$bgc_id, to = cwtab$zone_id)
+  rast2_z <- subst(rast2, from = cwtab$bgc_id, to = cwtab$zone_id)
+  
+  rast_out <- copy(ref_rast)
+  
+  values(rast_out) <- NA
+  rast_out[!is.na(rast2)] <- 0
+  rast_out[rast1 != rast2] <- 1  
+  rast_out[rast1_sz != rast2_sz] <- 2
+  rast_out[rast1_z != rast2_z] <- 3
+  #plot(rast_out)
+  
+  dat_freq <- as.data.table(freq(rast_out))
+  
+  dat_freq[,Total := sum(count)]
+  dat_freq[,Prop := count/Total]
+  return(list(summary = dat_freq, map = rast_out))
+}
+```
+
+### Climatology Difference: ClimateNA vs Mahonii
+
+```{r}
+#| echo: false
+mod1 <- vect("../../Common_Files/ModelMaps/WA_BGC_4Jan2024_eliminated_33var_ClimNA.gpkg")
+mod2 <- vect("../../Common_Files/ModelMaps/WA_BGC_9Jan2024_eliminated_33var_Colin.gpkg")
+test1 <- compare_maps(mod1,mod2)
+plot(test1$map)
+test1[["summary"]][,.(value, count, Prop)]
+```
+
+### Balanced vs Not (allvars)
+
+```{r}
+#| echo: false
+mod1 <- vect("../../Common_Files/ModelMaps/WA_BGC_9Jan2024_eliminated_allvar.gpkg")
+mod2 <- vect("../../Common_Files/ModelMaps/WA_BGC_9Jan2024_eliminated_allvar_balanced.gpkg")
+test1 <- compare_maps(mod1,mod2)
+plot(test1$map)
+test1[["summary"]][,.(value, count, Prop)]
+```
+
+### 33 vs AllVars
+
+```{r}
+#| echo: false
+mod1 <- vect("../../Common_Files/ModelMaps/WA_BGC_9Jan2024_eliminated_33var_Colin.gpkg")
+mod2 <- vect("../../Common_Files/ModelMaps/WA_BGC_9Jan2024_eliminated_allvar.gpkg")
+test1 <- compare_maps(mod1,mod2)
+plot(test1$map)
+test1[["summary"]][,.(value, count, Prop)]
+```
+
+### Allvars vs Papervars (balanced)
+
+```{r}
+#| echo: false
+mod1 <- vect("../../Common_Files/ModelMaps/WA_BGC_9Jan2024_eliminated_allvar_balanced.gpkg")
+mod2 <- vect("../../Common_Files/ModelMaps/WA_BGC_9Jan2024_eliminated_papervar_balanced.gpkg")
+test1 <- compare_maps(mod1,mod2)
+plot(test1$map)
+test1[["summary"]][,.(value, count, Prop)]
+```
+
+## WA Climatologies
+
+```{r}
+# library(climr)
+# ref_rast <- rast(mod1, res = 800)
+# ref_rast <- project(ref_rast, "epsg:4326")
+# coords <- crds(ref_rast)
+```
+
