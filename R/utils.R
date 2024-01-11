@@ -140,7 +140,7 @@ logVars <- function(dat,
 }
 
 
-removeOutlier <- function(dat, alpha,numIDvars){
+#' Remove outliers from data
 #'
 #' @param dat a `data.table` target data to "clean"
 #' @param alpha numeric. The alpha value used to determine the cutoff for outliers.
@@ -155,21 +155,21 @@ removeOutlier <- function(dat, alpha,numIDvars){
 #' @importFrom stats mahalanobis qchisq cov
 #' 
 #' @export
+removeOutlier <- function(dat, alpha, vars){
   out <- foreach(curr = unique(as.character(dat$BGC)), .combine = rbind) %do% {
     temp <- dat[dat$BGC == curr,]
-    md <- tryCatch(mahalanobis(temp[,-c(1:numIDvars)],
-                               center = colMeans(temp[,-c(1:numIDvars)]),
-                               cov = cov(temp[,-c(1:numIDvars)])), error = function(e) e)
-    if(!inherits(md,"error")){
+    md <- tryCatch(mahalanobis(temp[, vars],
+                               center = colMeans(temp[, vars]),
+                               cov = cov(temp[, vars])), error = function(e) e)
+    if (!inherits(md,"error")){
       ctf <- qchisq(1-alpha, df = ncol(temp)-1)
       outl <- which(md > ctf)
-      message("Removing", length(outl), "outliers from",curr, "; ")
-      if(length(outl) > 0){
+      message("Removing", length(outl), "outliers from", curr, "; ")
+      if (length(outl) > 0){
         temp <- temp[-outl,]
       }
     }
     temp
-    
   }
   return(out)
 }
