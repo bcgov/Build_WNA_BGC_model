@@ -156,9 +156,7 @@ vs10+ = testing effects and final set
 vs_final <- c("DD5", "DD_delayed",
               "PPT_MJ", "PPT_JAS", 
               "CMD.total", "CMI", "CMDMax",
-              "SHM", "AHM", 
-              "NFFD", 
-              "PAS")
+              "SHM", "AHM", "NFFD", "PAS")
 
 ```
 
@@ -204,8 +202,10 @@ BGCbalance_recipe <- recipe(BGC ~ ., data =  BGC_good) |>
   step_downsample(BGC, under_ratio = 90) |>
   step_smote(BGC, over_ratio = .1, neighbors = 8) |> 
   prep()
+
 X_balanced <- BGCbalance_recipe |>
   juice()
+
 setDT(X_balanced)
 BGC_Nums <- X_balanced[,.(Num = .N), by = BGC]   ## this is not being used.
 ```
