@@ -162,7 +162,8 @@ The new rebalanced training set is 310 668 points. This training set is submitte
 
 ```{r final training sets}
 ## set alpha for removal of outliers (2.5% = 3SD)
-trainData <- removeOutlier(as.data.frame(trainData), alpha = .025, numIDvars = 1) |>
+vars <- setdiff(names(trainData), "BGC")
+trainData <- removeOutlier(as.data.frame(trainData), alpha = .025, vars = vars) |>
   Cache(.)
 ```
 
