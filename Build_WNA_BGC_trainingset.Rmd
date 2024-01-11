@@ -65,7 +65,7 @@ vars_needed <- c("DD5","DD_0_at","DD_0_wt","PPT05","PPT06","PPT07","PPT08","PPT0
 clim_vars <- getClimate(coords, bgcs,
                         which_normal = "normal_composite", return_normal = TRUE, 
                         vars = vars_needed, cache = TRUE) |>
-  Cache(.)
+  Cache()
 ```
 
 ```{r reduce variables}
@@ -94,12 +94,12 @@ The new rebalanced training set is 310 668 points. This training set is submitte
 ## set alpha for removal of outliers (2.5% = 3SD)
 vars <- setdiff(names(trainData), "BGC")
 trainData <- removeOutlier(as.data.frame(trainData), alpha = .025, vars = vars) |>
-  Cache(.)
+  Cache()
 ```
 
 ```{r remove very small units}
 trainData <- rmLowSampleBGCs(trainData) |>
-  Cache(.)
+  Cache()
 ```
 
 ```{r balance}
@@ -130,7 +130,7 @@ BGCmodel <- ranger(
   classification = TRUE,
   probability = FALSE
 ) |>
-  Cache(.)
+  Cache()
 
 confusionMatrix(data = predictions(BGCmodel),
                 reference = trainData$BGC)
