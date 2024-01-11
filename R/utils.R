@@ -6,9 +6,7 @@ getClimate <- function(coords, bgcs, ...) {
   coords_bgc[,geometry := NULL]
   coords_bgc <- coords_bgc[!is.na(BGC),]
   
-  #coords <- fread("WNA_2km_grid_WHM.csv")
-  #setcolorder(coords, c("long","lat","elev","id"))
-  coords <- as.data.frame(coords)# %>% dplyr::rename(long = 1, lat = 2)
+  coords <- as.data.frame(coords)
   
   args <- append(list(coords = coords, coords_bgc = coords_bgc), dots)
   out <- do.call(.getClimVars, args) |>
