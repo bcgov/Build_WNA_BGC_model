@@ -57,7 +57,21 @@ coords <- makePointCoords(bgcs, elev) |>
   Cache()
 coords <- coords[!is.na(elev),]
 
-coords_subset <- subsetByExtent(coords)
+## full training area
+trainingarea <- ext(c(-125, -112, 43, 55))
+coords_train <- subsetByExtent(coords, trainingarea)
+
+## study area for testing
+studyarea <- ext(c(-123, -117, 49, 52.5))
+coords_sa <- subsetByExtent(coords, vect(studyarea, crs = "EPSG:4326"))
+
+## make subsets of the study area for hold-outs (gaps)
+gapextents <- makeGapExtents(studyarea, 5L)
+## convert to poly
+gap_poly <- lapply(gapextents, vect, crs = "EPSG:4326")
+gap_poly <- do.call(rbind, gap_poly)
+
+coords_trainWGaps <- subsetByExtent(coords_train, gap_poly)
 
 ```
 
