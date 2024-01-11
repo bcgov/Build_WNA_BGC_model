@@ -24,7 +24,6 @@ Require::Require(c(
   "smotefamily", 
   "terra", 
   "themis",
-  "tictoc", 
   "tidymodels"
 ))
 
@@ -51,27 +50,16 @@ Points from a 4km hex grid of western north america are generated in R and submi
 
 
 ```{r}
-tic()
-wna_bgc <- st_read("D:/CommonTables/BGC_Maps/WNA_BGC_v12_5Apr2022.gpkg")#
-#wna_bgc <- st_read("../WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
-wna_grid <- st_make_grid(wna_bgc, cellsize = 2000, what = "centers") |> st_transform(crs = 4326)
-elev <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_SRT_30m.tif") ##I used a 1km DEM - if you have a higher res one could use that
-#elev <- rast("C:\\Users\\kdaust\\AppData\\Local/R/cache/R/climRpnw/inputs_pkg/normal/Normal_1961_1990MP/dem/dem2_WNA.nc")
-wna_grid2 <- vect(wna_grid)
-tmp_elev <- terra::extract(elev,wna_grid2)
+wna_bgc <- st_read("//objectstore2.nrs.bcgov/ffec/CCISS_Working/WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
+elev <- rast("D:/CommonTables/DEMs/WNA_DEM_SRT_30m.tif") ##I used a 1km DEM - if you have a higher res one could use that
 
-coords <- geom(wna_grid2, df = T)
-setDT(coords)
-coords[,c("part","hole","geom") := NULL]
-coords[,elev := tmp_elev[,2]]
-coords[,id := seq_along(elev)]
-fwrite(coords, "WNA_2km_grid_WHM.csv")
-toc()
+coords <- makePointCoords(wna_bgc, elev) 
+coords <- coords[!is.na(elev),]
+
 ```
 
 ```{r}
-coords <- fread("//objectstore2.nrs.bcgov/ffec/CCISS_Working/WNA_BGC/WNA_2km_grid_WHM.csv")
-coords <- coords[!is.na(elev),]
+
 
 bgcs <- st_read("//objectstore2.nrs.bcgov/ffec/CCISS_Working/WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
 

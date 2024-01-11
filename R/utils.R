@@ -1,3 +1,37 @@
+#' Create a set of training points with associated
+#'   elevation and BGC values.
+#'
+#' @param bgc_poly an `sf` object of BGC polygons.
+#' @param elev a SpatRaster of elevation covering the extent of `bgc_poly`.
+#' @param gridSize numeric. Distance in m between points.
+#' 
+#' @details Points are sampled regularly from a grid with cell size
+#'  defined by `gridSize` that covers `bgc_poly`.
+#'
+#' @return a `data.table` of point coordinates with associated IDs,
+#'   elevation and BGCs.
+#'   
+#' @export
+#'
+#' @importFrom terra extract vect geom
+#' @importFrom sf st_make_grid st_transform
+#' @importFrom data.table setDT
+makePointCoords <- function(bgc_poly, elev, gridSize = 2000) {
+  wna_grid <- st_make_grid(bgc_poly, cellsize = gridSize, what = "centers") |>
+    st_transform(crs = 4326)
+  wna_grid2 <- vect(wna_grid)
+  tmp_elev <- extract(elev, wna_grid2)
+  
+  coords <- geom(wna_grid2, df = T)
+  
+  setDT(coords)
+  coords[, c("part","hole","geom") := NULL]
+  coords[, elev := tmp_elev[,2]]
+  coords[, id := seq_along(elev)]
+  
+  return(coords)
+}
+
 #' Prepares coordinates and obtains climate normals
 #'  using `climr_downscale`
 #'
