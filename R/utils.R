@@ -101,6 +101,35 @@ subsetByExtent <- function(coords, cropExt = ext(c(-123, -118, 49, 52)), crs = "
   return(coords_out)
 }
 
+
+
+#' Make generate extents for gaps used in hold-out samples
+#'   for model cross-validation.
+#'
+#' @param studyarea `SpatExtent` of study area where gaps should be generated.
+#'   Defaults to an area in Southern BC. 
+#' @param ngaps integer. Number of gaps wanted..
+#'
+#' @return a `list` of extents of length `ngaps`.
+#' 
+#' @export
+#'
+#' @importFrom terra ext
+makeGapExtents <- function(studyarea = ext(c(-123, -118, 49, 52)), ngaps = 5L) {
+  centre <- c(mean(studyarea[1:2]), mean(studyarea[3:4]))
+  range <- c(diff(studyarea[1:2]), diff(studyarea[3:4]))
+  gapcentre <- matrix(c(-1,1,1,1,1,-1,-1,-1), 4, byrow=T)
+  gapextents <- ext(c(centre[1]+c(-1,1)/8*range[1], centre[2]+c(-1,1)/8*range[2]))
+  
+  ngaps <- ngaps - 1  ## we have one already
+  extragaps <- lapply(seq_len(ngaps), function(i) {
+    gap <- ext(c(centre[1]+sort(gapcentre[i,1]*c(1,3)/8)*range[1], centre[2]+sort(gapcentre[i,2]*c(1,3)/8)*range[2]))
+    gap
+  })
+
+  return(append(gapextents, extragaps))
+}
+
 #' Prepares coordinates and obtains climate normals
 #'  using `climr_downscale`
 #'
