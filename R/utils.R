@@ -12,8 +12,9 @@ getClimate <- function(coords, bgcs, ...) {
   
   ##turned it into one function
   args <- append(list(coords = coords, coords_bgc = coords_bgc), dots)
-  out <- do.call(.getClimVars, args)
-  
+  out <- do.call(.getClimVars, args) |>
+    Cache(.)
+
   return(out)
 }
 
