@@ -10,7 +10,7 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, message = FALSE)
 Require::Require(c(
-  "bcgov/climr@devl", 
+  "bcgov/climr@main", 
   "caret", 
   "clhs", 
   "data.table", 
