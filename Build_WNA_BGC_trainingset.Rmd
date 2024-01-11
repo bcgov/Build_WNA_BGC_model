@@ -171,12 +171,6 @@ BGC_counts <- X_train[, .(Num = .N), by = .(BGC)]
 
 
 The preprocessing function from the caret package was used to identify variables with near-zero variance or correlation >0.90 in the combined data set. These variables were removed leaving a final variable set of 20 variables.
-```{r reduce variables, warning=FALSE} 
-correlationMatrix <- cor(X_train[,!"BGC"])
-highlyCorrelated <- findCorrelation(correlationMatrix, cutoff = 0.7, 
-                                    verbose = TRUE, names = TRUE) ## review for removal of highly correlated vars
-highlyCorrelated
-
 ```
 
 ```{r remove poor BGCs}
