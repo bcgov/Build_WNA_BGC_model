@@ -31,20 +31,10 @@ Require::Require(c(
 options(reproducible.cachePath = "reproducible.cache/")
 
 source("R/utils.R")
-# library(climRdev)
-# thebb <- c(55.38847, 54.61025, -126.94957, -127.7162)
-# dbCon <- data_connect()
-# normal <- normal_input_postgis(dbCon = dbCon, bbox = thebb, cache = TRUE)
-# remove(normal)
-#tidymodels_prefer()
-#install.packages ("spThin")
-#conflicted::conflict_prefer(name = "spec", winner = "yardstick")
-#conflict_prefer("rescale", "scales")
 
-# source("../Build_USA_BEC/_functions/AddVars.R")
-# source("../Build_USA_BEC/_functions/removeOutlier.R")
-# source("../Build_USA_BEC/_functions/acc_metrix.R")
-# cloud_dir <- "F:/OneDrive - Government of BC/CCISSv12/latest_CCISS_tool_files/"
+## not working. Destany will sen email to admin
+# odb <- get_business_onedrive()
+# od$download_file("Documents/myfile.docx")
 
 ```
 
@@ -77,51 +67,6 @@ coords[,elev := tmp_elev[,2]]
 coords[,id := seq_along(elev)]
 fwrite(coords, "WNA_2km_grid_WHM.csv")
 toc()
-###236 seconds
-###Chunk making sure the extent were matching
-# wna_mask <- vect(wna_bgc)
-# wna_mask <- project(wna_mask, "EPSG:4326")
-#elev <- crs(elev) <- "epsg:4326" 
-# dem_crop <- crop(elev, wna_mask, snap="near", mask=FALSE, touches=TRUE, extend=FALSE, filename="D:/CommonTables/DEMs/WNA_DEM_SRT_30m_cropped.tif")
-
-#elev2 <- terra::project(elev, "epsg:3005") ## this projection may not be suitable for all WNA
-# pts <- vect(wna_grid)
-# tmp_elev <- terra::extract(elev,pts)
-# #pts_4326 <- project(pts, "epsg:4326")
-# #coords <- geom(pts_4326,df = TRUE)
-# coords <- geom(pts,df = TRUE)
-# coords <- coords[,c("geom","x","y")]
-# coords <- data.table(coords)
-# coords[, elev := tmp_elev$WNA_DEM_SRT_30m]
-# coords <- coords[!is.na(elev),]
-# setnames(coords, c("id","long","lat","elev"))
-# fwrite(coords, "WNA_2km_grid.csv")
-# toc()
-# coords <- fread("WNA_2km_grid.csv")
-
-# wna_bgc <- vect("D:/CommonTables/BGC_maps/WNA_BGC_v12_5Apr2022.gpkg")
-# 
-# coords <- fread("WNA_2km_grid_WHM.csv")
-# pts <- vect(coords, geom=c("long","lat"), crs = "epsg:4326")
-# pts <- project(pts, "epsg:3005")
-# pts2 <- crop(pts, ext(wna_bgc))
-# pts2 <- project(pts2, "epsg:4326")
-# 
-# coords2 <- geom(pts2, df = T)
-# setDT(coords2)
-# coords2[,c("part","hole","geom") := NULL]
-# coords2[,elev := pts2$elev]
-# coords2[,id := seq_along(elev)]
-# fwrite(coords2, "WNA_2km_grid_WHM2.csv")
-# 
-# 
-# wna_grid <- st_make_grid(wna_bgc, cellsize = 2000, what = "centers")
-# wna_grid <- st_as_sf(wna_grid)
-# wna_grid$id <- seq_along(wna_grid)
-# grid_bgc <- st_join(wna_grid,wna_bgc)
-# elev <- rast("C:\\Users\\kdaust\\AppData\\Local/R/cache/R/climRpnw/inputs_pkg/normal/Normal_1961_1990MP/dem/dem2_WNA.nc") ##I used a 1km DEM - if you have a higher res one could use that
-# elev2 <- terra::project(elev, "epsg:3005")
-
 ```
 
 ```{r}
