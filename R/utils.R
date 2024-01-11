@@ -4,6 +4,7 @@
 #' @param bgc_poly an `sf` object (or one cohercible to an `sf` object) of BGC polygons.
 #' @param elev a `SpatRaster` or `RasterLayer` of elevation covering the extent of `bgc_poly`.
 #' @param gridSize numeric. Distance in m between points.
+#' @param crs passed to [sf::st_as_sf()]
 #' 
 #' @details Points are sampled regularly from a grid with cell size
 #'  defined by `gridSize` that covers `bgc_poly`.
