@@ -186,7 +186,7 @@ X_balanced <- BGCbalance_recipe |>
   juice()
 
 setDT(X_balanced)
-BGC_Nums <- X_balanced[,.(Num = .N), by = BGC]   ## this is not being used.
+# BGC_Nums <- X_balanced[,.(Num = .N), by = BGC]   ## for inspection
 ```
 
 ```{r train model}
