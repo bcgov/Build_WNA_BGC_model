@@ -172,12 +172,12 @@ trainData <- removeOutlier(as.data.frame(trainData), alpha = .025, numIDvars = 1
 ```
 
 ```{r remove very small units}
-BGC_good <- rmLowSampleBGCs(X2) |>
+trainData <- rmLowSampleBGCs(trainData) |>
   Cache(.)
 ```
 
 ```{r balance}
-BGCbalance_recipe <- recipe(BGC ~ ., data =  BGC_good) |>
+BGCbalance_recipe <- recipe(BGC ~ ., data =  trainData) |>
   step_downsample(BGC, under_ratio = 90) |>
   step_smote(BGC, over_ratio = .1, neighbors = 8) |> 
   prep()
@@ -190,11 +190,11 @@ BGC_Nums <- X_balanced[,.(Num = .N), by = BGC]   ## this is not being used.
 ```
 
 ```{r train model}
-BGC_good[, BGC := as.factor(BGC)]
+trainData[, BGC := as.factor(BGC)]
 
 BGCmodel <- ranger(
   BGC ~ .,
-  data = BGC_good,
+  data = trainData,
   num.trees = 501,
   splitrule =  "extratrees",
   mtry = 4,
