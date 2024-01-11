@@ -176,10 +176,9 @@ removeOutlier <- function(dat, alpha,numIDvars){
   return(out)
 }
 
-##remove BGCs with low numbers of points
-rmLowSampleBGCs <- function(X2, cutoff = 30) {
-  XAll <- as.data.table(X2)
-  BGC_Nums <- XAll[,.(Num = .N), by = BGC]
-  BGC_good <- XAll[!BGC %in% BGC_Nums[Num < cutoff, BGC],] 
+rmLowSampleBGCs <- function(dat, cutoff = 30) {
+  dat <- as.data.table(dat)
+  BGC_Nums <- dat[,.(Num = .N), by = BGC]
+  BGC_good <- dat[!BGC %in% BGC_Nums[Num < cutoff, BGC],] 
   return(BGC_good)
 }
