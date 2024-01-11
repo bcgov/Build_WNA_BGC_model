@@ -168,8 +168,7 @@ getClimate <- function(coords, bgcs, ...) {
   coords <- as.data.frame(coords)
   
   args <- append(list(coords = coords, coords_bgc = coords_bgc), dots)
-  out <- do.call(.getClimVars, args) |>
-    Cache(.)
+  out <- do.call(.getClimVars, args)
 
   return(out)
 }
@@ -184,7 +183,8 @@ getClimate <- function(coords, bgcs, ...) {
 #' @importFrom climr climr_downscale
 #' @importFrom data.table setDT
 .getClimVars <- function(coords, coords_bgc, ...) {
-  clim_vars <- climr_downscale(coords, ...)
+  clim_vars <- climr_downscale(coords, ...) |>
+    Cache()
   setDT(clim_vars)
   clim_vars <- clim_vars[!is.nan(PPT05),] ##lots of points in the ocean
   clim_vars[coords_bgc, BGC := i.BGC, on = "ID==id"]
