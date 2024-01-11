@@ -34,7 +34,7 @@ dem.wna <- rast("//objectstore2.nrs.bcgov/ffec/DEM/DEM_Composite_WNA_800m/compos
 dem.noram <- project(dem.noram, dem.bc)
 
 # define the study area and dem
-studyarea <- ext(c(-123, -118, 49, 52))
+studyarea <- ext(c(-123, -117, 49, 52.5))
 
 plot(dem.bc)
 plot(studyarea, add=T)
