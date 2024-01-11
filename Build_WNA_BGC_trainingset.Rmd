@@ -50,18 +50,16 @@ Points from a 4km hex grid of western north america are generated in R and submi
 
 
 ```{r}
-wna_bgc <- st_read("//objectstore2.nrs.bcgov/ffec/CCISS_Working/WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
+bgcs <- st_read("//objectstore2.nrs.bcgov/ffec/CCISS_Working/WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
+
 elev <- rast("D:/CommonTables/DEMs/WNA_DEM_SRT_30m.tif") ##I used a 1km DEM - if you have a higher res one could use that
 
-coords <- makePointCoords(wna_bgc, elev) 
+coords <- makePointCoords(bgcs, elev) 
 coords <- coords[!is.na(elev),]
 
 ```
 
 ```{r}
-
-
-bgcs <- st_read("//objectstore2.nrs.bcgov/ffec/CCISS_Working/WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg")
 
 vars_needed <- c("DD5","DD_0_at","DD_0_wt","PPT05","PPT06","PPT07","PPT08","PPT09","CMD","PPT_at","PPT_wt","CMD07","SHM", "AHM", "NFFD", "PAS", "CMI")
 
