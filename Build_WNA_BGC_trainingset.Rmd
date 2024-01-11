@@ -137,7 +137,7 @@ bgcs <- st_read("//objectstore2.nrs.bcgov/ffec/CCISS_Working/WNA_BGC/WNA_BGC_v12
 vars_needed <- c("DD5","DD_0_at","DD_0_wt","PPT05","PPT06","PPT07","PPT08","PPT09","CMD","PPT_at","PPT_wt","CMD07","SHM", "AHM", "NFFD", "PAS", "CMI")
 
 clim_vars <- getClimate(coords, bgcs,
-                        which_normal = "auto", return_normal = TRUE, 
+                        which_normal = "normal_composite", return_normal = TRUE, 
                         vars = vars_needed, cache = TRUE) |>
   Cache(.)
 ```
