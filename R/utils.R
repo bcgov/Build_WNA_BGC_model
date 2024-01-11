@@ -176,6 +176,16 @@ removeOutlier <- function(dat, alpha,numIDvars){
   return(out)
 }
 
+#' Remove BGCs with low sample sizes
+#'
+#' @param dat a `data.table` with a "BGC" column and number of rows
+#'   being the sampled points.
+#' @param cutoff minimum number of points necessary to retain a 
+#'   given BGC.
+#'
+#' @return `dat` without the excluded BGCs and their samples.
+#' @importFrom data.table as.data.table
+#' @export
 rmLowSampleBGCs <- function(dat, cutoff = 30) {
   dat <- as.data.table(dat)
   BGC_Nums <- dat[,.(Num = .N), by = BGC]
