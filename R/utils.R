@@ -17,12 +17,13 @@
 #' @importFrom sf st_make_grid st_transform
 #' @importFrom data.table setDT
 makePointCoords <- function(bgc_poly, elev, gridSize = 2000) {
-  wna_grid <- st_make_grid(bgc_poly, cellsize = gridSize, what = "centers") |>
-    st_transform(crs = 4326)
-  wna_grid2 <- vect(wna_grid)
-  tmp_elev <- extract(elev, wna_grid2)
   
-  coords <- geom(wna_grid2, df = T)
+  bgc_grid <- st_make_grid(bgc_poly, cellsize = gridSize, what = "centers") |>
+    st_transform(crs = 4326)
+  bgc_grid2 <- vect(bgc_grid)
+  tmp_elev <- extract(elev, bgc_grid2)
+  
+  coords <- geom(bgc_grid2, df = T)
   
   setDT(coords)
   coords[, c("part","hole","geom") := NULL]
