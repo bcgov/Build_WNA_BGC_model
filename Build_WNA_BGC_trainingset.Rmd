@@ -56,6 +56,9 @@ elev <- rast("//objectstore2.nrs.bcgov/ffec/DEM/DEM_NorAm/NA_Elevation/data/nort
 coords <- makePointCoords(bgcs, elev) |>
   Cache()
 coords <- coords[!is.na(elev),]
+
+coords_subset <- subsetByExtent(coords)
+
 ```
 
 ```{r}

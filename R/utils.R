@@ -46,6 +46,60 @@ makePointCoords <- function(bgc_poly, elev, gridSize = 2000) {
   return(coords)
 }
 
+
+#' Subset a group of points by spatial extent
+#'
+#' @param coords `data.table` of point coordinates with columns "x" (longitude)
+#'   and "y" (latitude) (and any additional columns), a `SpatVector` or object 
+#'   cohersible to `SpatVector`.
+#' @param cropExt `SpatExtent` to subset the data to. Defaults to an area in 
+#'   Southern BC.
+#' @param crs passed to [terra::vect()] to coerce coords to a `SpatVector` 
+#'   if it is not one already.
+#'
+#' @return a subset `coords` object.
+#' @export
+#'
+#' @importFrom terra vect crop
+#' @importFrom data.table as.data.table
+subsetByExtent <- function(coords, cropExt = ext(c(-123, -118, 49, 52)), crs = "EPSG:4326") {
+  
+  isSpatial <- FALSE
+  
+  if (is(coords, "data.table")) {
+    coords <- tryCatch(as.data.table(coords), error = function(e) e)
+    if (is(coords, "error")) {
+      stop("Can't coherce 'coords' to a data.table.",
+           "  \nPlease pass a data.table, a SpatVector, or object to data.table or SpatVector")
+    }
+    coords_poly <- suppressWarnings(vect(coords, geom = c("x", "y"), crs = crs))
+  } else {
+    isSpatial <- TRUE
+    if (is(coords, "SpatVector")) {
+      coords_poly <- coords
+    } else {
+      coords_poly <- tryCatch(vect(coords), error = function(e) e)
+      if (is(coords_poly, "error")) {
+        stop("Can't coherce 'coords' to a SpatVector.",
+             "  \nPlease pass a data.table, a SpatVector, or object to data.table or SpatVector")
+      }
+    }
+  }
+  
+  coords_out <- crop(coords_poly, cropExt)
+  
+  if (!nrow(coords_out)) {
+    warning("No points left after cropping to cropExt. Do projections match?")
+  }
+  
+  if (!isSpatial) {
+    coords_out <- as.data.table(coords_out, geom = "XY")
+    coords_out <- coords_out[, .SD, .SDcols = names(coords)]  ## re-order
+  }
+  
+  return(coords_out)
+}
+
 #' Prepares coordinates and obtains climate normals
 #'  using `climr_downscale`
 #'
