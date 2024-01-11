@@ -203,4 +203,8 @@ BGCmodel <- ranger(
   probability = FALSE
 ) |>
   Cache(.)
+
+confusionMatrix(data = predictions(BGCmodel),
+                reference = trainData$BGC)
+
 ```
