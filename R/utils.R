@@ -1,8 +1,8 @@
 #' Create a set of training points with associated
 #'   elevation and BGC values.
 #'
-#' @param bgc_poly an `sf` object of BGC polygons.
-#' @param elev a SpatRaster of elevation covering the extent of `bgc_poly`.
+#' @param bgc_poly an `sf` object (or one cohercible to an `sf` object) of BGC polygons.
+#' @param elev a `SpatRaster` or `RasterLayer` of elevation covering the extent of `bgc_poly`.
 #' @param gridSize numeric. Distance in m between points.
 #' 
 #' @details Points are sampled regularly from a grid with cell size
@@ -17,6 +17,19 @@
 #' @importFrom sf st_make_grid st_transform
 #' @importFrom data.table setDT
 makePointCoords <- function(bgc_poly, elev, gridSize = 2000) {
+  if (!inherits(bgc_poly, "sf")) {
+    bgc_poly <- tryCatch(st_as_sf(bgc_poly), error = function(e) e)
+    if (is(bgc_poly, "error")) {
+      stop("Can't coherce bgc_poly to an sf object. Please pass an sf object or another cohercible object class.")
+    }
+  }
+  
+  if (!is(elev, "SpatRaster")) {
+    elev <- tryCatch(rast(elev), error = function(e) e)
+    if (is(elev, "error")) {
+      stop("Can't coherce elev to a SpatRaster. Please pass SpatRaster or RasterLayer.")
+    }
+  }
   
   bgc_grid <- st_make_grid(bgc_poly, cellsize = gridSize, what = "centers") |>
     st_transform(crs = 4326)
