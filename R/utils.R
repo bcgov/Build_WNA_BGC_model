@@ -17,7 +17,7 @@
 #' @importFrom terra extract vect geom
 #' @importFrom sf st_make_grid st_transform
 #' @importFrom data.table setDT
-makePointCoords <- function(bgc_poly, elev, gridSize = 2000) {
+makePointCoords <- function(bgc_poly, elev, gridSize = 2000, crs = "EPSG:4326") {
   if (!inherits(bgc_poly, "sf")) {
     bgc_poly <- tryCatch(st_as_sf(bgc_poly), error = function(e) e)
     if (is(bgc_poly, "error")) {
@@ -33,7 +33,7 @@ makePointCoords <- function(bgc_poly, elev, gridSize = 2000) {
   }
   
   bgc_grid <- st_make_grid(bgc_poly, cellsize = gridSize, what = "centers") |>
-    st_transform(crs = 4326)
+    st_transform(crs = st_crs(crs))
   bgc_grid2 <- vect(bgc_grid)
   tmp_elev <- extract(elev, bgc_grid2)
   
@@ -123,7 +123,7 @@ getClimate <- function(coords, bgcs, ...) {
     stop("coords mmust contain columns 'x', 'y', 'elev' and 'id'")
   }
   
-  coords_sf <- st_as_sf(coords, coords = c("x","y"), crs = 4326)
+  coords_sf <- st_as_sf(coords, coords = c("x","y"), crs = crs)
   coords_sf$elev <- NULL
   coords_sf <- st_transform(coords_sf, 3005)
   
