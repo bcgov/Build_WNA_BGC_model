@@ -53,8 +53,8 @@ makePointCoords <- function(bgc_poly, elev, gridSize = 2000, crs = "EPSG:4326") 
 #' @param coords `data.table` of point coordinates with columns "x" (longitude)
 #'   and "y" (latitude) (and any additional columns), a `SpatVector` or object 
 #'   cohersible to `SpatVector`.
-#' @param cropExt `SpatExtent` to subset the data to. Defaults to an area in 
-#'   Southern BC.
+#' @param cropExt `SpatExtent` of `SpatVector` to subset the data to. Defaults to 
+#'   the `SpatExtent` of an area in Southern BC.
 #' @param crs passed to [terra::vect()] to coerce coords to a `SpatVector` 
 #'   if it is not one already.
 #'
@@ -66,6 +66,10 @@ makePointCoords <- function(bgc_poly, elev, gridSize = 2000, crs = "EPSG:4326") 
 subsetByExtent <- function(coords, cropExt = ext(c(-123, -118, 49, 52)), crs = "EPSG:4326") {
   
   isSpatial <- FALSE
+  
+  if (!inherits(cropExt, c("SpatVector", "SpatExtent"))) {
+    stop("cropExt must be a SpatVector or a SpatExtent")
+  } 
   
   if (is(coords, "data.table")) {
     coords <- tryCatch(as.data.table(coords), error = function(e) e)
@@ -86,7 +90,7 @@ subsetByExtent <- function(coords, cropExt = ext(c(-123, -118, 49, 52)), crs = "
       }
     }
   }
-  
+
   coords_out <- crop(coords_poly, cropExt)
   
   if (!nrow(coords_out)) {
