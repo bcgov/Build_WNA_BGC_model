@@ -95,7 +95,7 @@ vs_final <- c("DD5", "DD_delayed",
               "CMD.total", "CMI", "CMDMax",
               "SHM", "AHM", "NFFD", "PAS")
 
-trainData <- clim_vars[, .SD, .SDcols = c("BGC", vs_final)]
+trainData <- clim_vars[, .SD, .SDcols = c("BGC", "id", vs_final)]
 trainData <- trainData[complete.cases(trainData)]
 
 # BGC_counts <- trainData[, .(Num = .N), by = .(BGC)]   ## for inspection
