@@ -4,6 +4,7 @@
 #' @param bgc_poly an `sf` object (or one cohercible to an `sf` object) of BGC polygons.
 #' @param elev a `SpatRaster` or `RasterLayer` of elevation covering the extent of `bgc_poly`.
 #' @param gridSize numeric. Distance in m between points.
+#' @param crs passed to [sf::st_as_sf()]
 #' 
 #' @details Points are sampled regularly from a grid with cell size
 #'  defined by `gridSize` that covers `bgc_poly`.
@@ -16,7 +17,7 @@
 #' @importFrom terra extract vect geom
 #' @importFrom sf st_make_grid st_transform
 #' @importFrom data.table setDT
-makePointCoords <- function(bgc_poly, elev, gridSize = 2000) {
+makePointCoords <- function(bgc_poly, elev, gridSize = 2000, crs = "EPSG:4326") {
   if (!inherits(bgc_poly, "sf")) {
     bgc_poly <- tryCatch(st_as_sf(bgc_poly), error = function(e) e)
     if (is(bgc_poly, "error")) {
@@ -32,11 +33,11 @@ makePointCoords <- function(bgc_poly, elev, gridSize = 2000) {
   }
   
   bgc_grid <- st_make_grid(bgc_poly, cellsize = gridSize, what = "centers") |>
-    st_transform(crs = 4326)
+    st_transform(crs = st_crs(crs))
   bgc_grid2 <- vect(bgc_grid)
-  tmp_elev <- extract(elev, bgc_grid2)
+  tmp_elev <- terra::extract(elev, bgc_grid2)
   
-  coords <- geom(bgc_grid2, df = T)
+  coords <- geom(bgc_grid2, df = TRUE)
   
   setDT(coords)
   coords[, c("part","hole","geom") := NULL]
@@ -44,6 +45,60 @@ makePointCoords <- function(bgc_poly, elev, gridSize = 2000) {
   coords[, id := seq_along(elev)]
   
   return(coords)
+}
+
+
+#' Subset a group of points by spatial extent
+#'
+#' @param coords `data.table` of point coordinates with columns "x" (longitude)
+#'   and "y" (latitude) (and any additional columns), a `SpatVector` or object 
+#'   cohersible to `SpatVector`.
+#' @param cropExt `SpatExtent` to subset the data to. Defaults to an area in 
+#'   Southern BC.
+#' @param crs passed to [terra::vect()] to coerce coords to a `SpatVector` 
+#'   if it is not one already.
+#'
+#' @return a subset `coords` object.
+#' @export
+#'
+#' @importFrom terra vect crop
+#' @importFrom data.table as.data.table
+subsetByExtent <- function(coords, cropExt = ext(c(-123, -118, 49, 52)), crs = "EPSG:4326") {
+  
+  isSpatial <- FALSE
+  
+  if (is(coords, "data.table")) {
+    coords <- tryCatch(as.data.table(coords), error = function(e) e)
+    if (is(coords, "error")) {
+      stop("Can't coherce 'coords' to a data.table.",
+           "  \nPlease pass a data.table, a SpatVector, or object to data.table or SpatVector")
+    }
+    coords_poly <- suppressWarnings(vect(coords, geom = c("x", "y"), crs = crs))
+  } else {
+    isSpatial <- TRUE
+    if (is(coords, "SpatVector")) {
+      coords_poly <- coords
+    } else {
+      coords_poly <- tryCatch(vect(coords), error = function(e) e)
+      if (is(coords_poly, "error")) {
+        stop("Can't coherce 'coords' to a SpatVector.",
+             "  \nPlease pass a data.table, a SpatVector, or object to data.table or SpatVector")
+      }
+    }
+  }
+  
+  coords_out <- crop(coords_poly, cropExt)
+  
+  if (!nrow(coords_out)) {
+    warning("No points left after cropping to cropExt. Do projections match?")
+  }
+  
+  if (!isSpatial) {
+    coords_out <- as.data.table(coords_out, geom = "XY")
+    coords_out <- coords_out[, .SD, .SDcols = names(coords)]  ## re-order
+  }
+  
+  return(coords_out)
 }
 
 #' Prepares coordinates and obtains climate normals
@@ -68,7 +123,7 @@ getClimate <- function(coords, bgcs, ...) {
     stop("coords mmust contain columns 'x', 'y', 'elev' and 'id'")
   }
   
-  coords_sf <- st_as_sf(coords, coords = c("x","y"), crs = 4326)
+  coords_sf <- st_as_sf(coords, coords = c("x","y"), crs = crs)
   coords_sf$elev <- NULL
   coords_sf <- st_transform(coords_sf, 3005)
   
