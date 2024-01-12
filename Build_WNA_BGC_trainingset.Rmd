@@ -131,7 +131,7 @@ trainData_balanced <- dataBalance_recipe |>
 ```
 
 ```{r train model}
-trainData[, BGC := as.factor(BGC)]
+trainData_balanced[, BGC := as.factor(BGC)]
 
 BGCmodel <- ranger(
   BGC ~ .,
