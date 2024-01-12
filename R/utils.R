@@ -309,7 +309,7 @@ removeOutlier <- function(dat, alpha, vars){
     if (!inherits(md,"error")){
       ctf <- qchisq(1-alpha, df = ncol(temp)-1)
       outl <- which(md > ctf)
-      message("Removing", length(outl), "outliers from", curr, "; ")
+      message(paste("Removing", length(outl), "outliers from", curr, "; "), sep = " ")
       if (length(outl) > 0){
         temp <- temp[-outl,]
       }
