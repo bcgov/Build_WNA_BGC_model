@@ -122,8 +122,10 @@ dataBalance_recipe <- recipe(BGC ~ ., data =  trainData) |>
   step_downsample(BGC, under_ratio = 90) |>  ## subsamples "oversampled" BGCs
   prep()
 
+## extract data.table
 trainData_balanced <- dataBalance_recipe |>
-  juice()
+  juice() |>
+  as.data.table()
 
 # BGC_Nums <- trainData_balanced[,.(Num = .N), by = BGC]   ## for inspection
 ```
