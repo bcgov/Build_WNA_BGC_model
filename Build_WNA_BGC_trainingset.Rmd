@@ -73,7 +73,8 @@ coords_trainWgaps <- coords_train[!coords_gaps, on = "id"]
 ```
 
 ```{r}
-vars_needed <- c("DD5","DD_0_at","DD_0_wt","PPT05","PPT06","PPT07","PPT08","PPT09","CMD","PPT_at","PPT_wt","CMD07","SHM", "AHM", "NFFD", "PAS", "CMI")
+vars_needed <- c("DD5", "DD_0_at", "DD_0_wt", "PPT05", "PPT06", "PPT07", "PPT08",
+                 "PPT09", "CMD", "PPT_at", "PPT_wt", "CMD07", "SHM", "AHM", "NFFD", "PAS", "CMI")
 
 clim_vars <- getClimate(coords, bgcs,
                         which_normal = "normal_composite", return_normal = TRUE, 
