@@ -90,10 +90,8 @@ coords_trainWgaps <- coords_trainWgaps[clim_vars[, .(id)], on = "id", nomatch = 
 setDT(clim_vars)   ## this shouldn't be necessary, submit issue/reprex to reproducible.
 addVars(clim_vars)
 
-vs_final <- c("DD5", "DD_delayed",
-              "PPT_MJ", "PPT_JAS", 
-              "CMD.total", "CMI", "CMDMax",
-              "SHM", "AHM", "NFFD", "PAS")
+vs_final <- c("DD5", "DD_delayed", "PPT_MJ", "PPT_JAS", 
+              "CMD.total", "CMI", "CMDMax", "SHM", "AHM", "NFFD", "PAS")
 
 trainData <- clim_vars[, .SD, .SDcols = c("BGC", "id", vs_final)]
 trainData <- trainData[complete.cases(trainData)]
@@ -110,8 +108,7 @@ The new rebalanced training set is 310 668 points. This training set is submitte
 
 ```{r final training sets}
 ## set alpha for removal of outliers (2.5% = 3SD)
-vars <- setdiff(names(trainData), "BGC")
-trainData <- removeOutlier(as.data.frame(trainData), alpha = .025, vars = vars) |>
+trainData <- removeOutlier(as.data.frame(trainData), alpha = .025, vars = vs_final) |>
   Cache()
 ```
 
