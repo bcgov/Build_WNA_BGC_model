@@ -133,9 +133,29 @@ trainData_balanced <- dataBalance_recipe |>
 ```{r train model}
 trainData_balanced[, BGC := as.factor(BGC)]
 
-BGCmodel <- ranger(
+cols <- c("BGC", vs_final)
+BGCmodel_full <- ranger(
   BGC ~ .,
-  data = trainData,
+  data = trainData_balanced[, ..cols],
+  num.trees = 501,
+  splitrule =  "extratrees",
+  mtry = 4,
+  min.node.size = 2,
+  importance = "permutation",
+  write.forest = TRUE,
+  classification = TRUE,
+  probability = FALSE
+) |>
+  Cache()
+
+
+subTrainData_balanced <- trainData_balanced[coords_trainWgaps, on = "id", nomatch = 0L]
+
+## retrain without hold-out sample gaps
+cols <- c("BGC", vs_final)
+BGCmodel_holdoutAll <- ranger(
+  BGC ~ .,
+  data = subTrainData_balanced[, ..cols],
   num.trees = 501,
   splitrule =  "extratrees",
   mtry = 4,
