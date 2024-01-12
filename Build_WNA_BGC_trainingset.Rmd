@@ -167,6 +167,8 @@ BGCmodel_holdoutAll <- ranger(
 ) |>
   Cache()
 
+saveRDS(BGCmodel_full, "//objectstore2.nrs.bcgov/ffec/CCISS_Working/BGCmodel_full.rds")
+saveRDS(BGCmodel_holdoutAll, "//objectstore2.nrs.bcgov/ffec/CCISS_Working/BGCmodel_holdoutAll.rds")
 
 ## study area for testing - get points at DEM scale 
 crs.bc <- crs(rast("//objectstore2.nrs.bcgov/ffec/Climatologies/PRISM_BC/PRISM_dem/PRISM_dem.asc"), proj = TRUE)
@@ -197,6 +199,7 @@ predDT <- predData[, list(id = ID,
                                                       data = predData)$predictions),
                           holdoutAll = as.character(predict(BGCmodel_holdoutAll, 
                                                        data = predData)$predictions))]
+saveRDS(predDT, "//objectstore2.nrs.bcgov/ffec/CCISS_Working/predictions_full_holdouts.rds")
 
 confusionMatrix(data = predictions(BGCmodel),
                 reference = trainData$BGC)
