@@ -6,7 +6,7 @@ editor: visual
 
 ## Comparing Accuracy of Maps
 
-```{r} 
+```{r}
 #| echo: false
 
 library(data.table)
@@ -93,12 +93,13 @@ plot(test1$map)
 test1[["summary"]][,.(value, count, Prop)]
 ```
 
-## WA Climatologies
+## XGBoost vs RandomForest
 
 ```{r}
-# library(climr)
-# ref_rast <- rast(mod1, res = 800)
-# ref_rast <- project(ref_rast, "epsg:4326")
-# coords <- crds(ref_rast)
+#| echo: false
+mod1 <- vect("../../Common_Files/ModelMaps/WA_BGC_9Jan2024_eliminated_papervar_balanced.gpkg")
+mod2 <- vect("../../Common_Files/ModelMaps/WA_BGC_11Jan2024_xgboost_papervar_unbalanced.gpkg")
+test1 <- compare_maps(mod1,mod2)
+plot(test1$map)
+test1[["summary"]][,.(value, count, Prop)]
 ```
-
