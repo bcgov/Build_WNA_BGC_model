@@ -9,6 +9,7 @@ library(data.table)
 library(sf)
 library(leaflet)
 library(RColorBrewer)
+library(raster) #needed for color to work on leaflet maps
 
 source("R/utils.R")
 options(reproducible.cachePath = "./reproducible.cache")
@@ -51,7 +52,7 @@ plot(trainingarea, add=T)
 dem <- crop(dem.noram, studyarea)
 X <- dem
 values(X) <- NA
-plot(dem)
+(dem)
 
 # select subsets of the study area for hold-outs (gaps)
 centre <- c(mean(studyarea[1:2]), mean(studyarea[3:4]))
@@ -81,6 +82,7 @@ clim <- climr_downscale(points_dat,
                         return_normal = TRUE, ##1961-1990 period
                         vars = c(list_variables(), "CMI"))
 addVars(clim)
+clim <- clim[complete.cases(clim)]
 
 ## attribute BGCs to points
 # bgcs <- st_read("//objectstore2.nrs.bcgov/ffec/WNA_BGC/WNA_BGC_v12_5Apr2022.gpkg") ##BGC map. takes longer
@@ -91,23 +93,44 @@ bgc_att <- st_join(points_sf, bgcs)
 bgc_att <- data.table(st_drop_geometry(bgc_att))
 
 # raster of mapped bgcs
-bgc.ref <- dem
+bgc.ref <- raster(dem) 
 values(bgc.ref) <- NA
 bgc.ref[bgc_att$id] <- factor(bgc_att$BGC, levels=levels.bgc)
 values(bgc.ref)[1:length(levels.bgc)] <- 1:length(levels.bgc) # this is a patch that is necessary to get the color scheme right.
 
 # raster of predicted bgcs #NOT 
 predictions <- readRDS("//objectstore2.nrs.bcgov/ffec/CCISS_Working/predictions_full_holdouts.rds") ##BGC map. takes longer
-bgc.pred.holdoutAll <- dem
-values(bgc.pred.holdoutAll) <- NA
-bgc.pred.holdoutAll[clim$ID]  <- factor(predictions$holdoutAll, levels=levels.bgc)
-values(bgc.pred.holdoutAll)[1:length(levels.bgc)] <- 1:length(levels.bgc) # this is a patch that is necessary to get the color scheme right.
-
 dim(predictions)
-dim()
+dim(values(dem))
+
+model.full <- readRDS("//objectstore2.nrs.bcgov/ffec/CCISS_Working/BGCmodel_full.rds") ##load RF model
+model.holdoutOnly <- model.holdoutAll
+model.holdoutAll <- readRDS("//objectstore2.nrs.bcgov/ffec/CCISS_Working/BGCmodel_holdoutAll.rds") ##load RF model
+
+bgc.pred.full <- as.character(predict(model.full, clim)$predictions)
+unique(bgc.pred.full[-which(bgc.pred.full%in%levels.bgc)])
+map.pred.full <- raster(dem) # terra doesn't play nice with leaflet on color schemes
+values(map.pred.full) <- NA
+map.pred.full[clim$ID]  <- factor(bgc.pred.full, levels=levels.bgc)
+values(map.pred.full)[1:length(levels.bgc)] <- 1:length(levels.bgc) # this is a patch that is necessary to get the color scheme right.
+plot(map.pred.full)
+
+# raster of predicted bgcs #NOT 
+bgc.pred.holdoutOnly <- as.character(predict(model.holdoutAll, clim)$predictions)
+map.pred.holdoutOnly <- raster(dem) 
+values(map.pred.holdoutOnly) <- NA
+map.pred.holdoutOnly[clim$ID]  <- factor(map.pred.holdoutOnly, levels=levels.bgc)
+values(map.pred.holdoutOnly)[1:length(levels.bgc)] <- 1:length(levels.bgc) # this is a patch that is necessary to get the color scheme right.
+
+# raster of predicted bgcs #NOT 
+bgc.pred.holdoutAll <- as.character(predict(model.holdoutAll, clim)$predictions)
+map.pred.holdoutAll <- raster(dem) 
+values(map.pred.holdoutAll) <- NA
+map.pred.holdoutAll[clim$ID]  <- factor(bgc.pred.holdoutAll, levels=levels.bgc)
+values(map.pred.holdoutAll)[1:length(levels.bgc)] <- 1:length(levels.bgc) # this is a patch that is necessary to get the color scheme right.
 
 # raster of specified climate variable
-var <- "Tmin"
+var <- "PPT09"
 climate <- dem
 values(climate) <- NA
 climate[clim$ID] <- clim[,get(var)]
@@ -119,23 +142,29 @@ breaks=seq(quantile(combined, 0)-inc, quantile(combined, 1)+inc, inc)
 colscheme.climate <- colorRampPalette(if(var=="Pr") brewer.pal(9, "YlGnBu") else rev(brewer.pal(11, "RdYlBu")))(length(breaks)-1)
 ColPal.climate <- colorBin(colscheme.climate, bins=breaks, na.color = "transparent")
 
-
 colscheme.bgc <- BGCcolors.subzone$colour[match(levels.bgc, BGCcolors.subzone$classification)]
 map <- leaflet(bgc.ref) %>%
   addTiles(group = "basemap") %>%
   addProviderTiles('Esri.WorldImagery', group = "sat photo") %>%
   addRasterImage(climate, colors = ColPal.climate, opacity = 1, maxBytes = 7 * 1024 * 1024, group = var) %>%
   addRasterImage(bgc.ref, colors = colscheme.bgc, method="ngb", maxBytes = 6 * 1024 * 1024, group = "Mapped BGC")%>%
+  addRasterImage(map.pred.full, colors = colscheme.bgc, method="ngb", maxBytes = 6 * 1024 * 1024, group = "Predicted (full)")%>%
+  addRasterImage(map.pred.holdoutOnly, colors = colscheme.bgc, method="ngb", maxBytes = 6 * 1024 * 1024, group = "Predicted (holdoutOnly)")%>%
+  addRasterImage(map.pred.holdoutAll, colors = colscheme.bgc, method="ngb", maxBytes = 6 * 1024 * 1024, group = "Predicted (holdoutAll)")%>%
   addPolygons(data=gap_poly, fillColor = NA, color="black", smoothFactor = 0.2, fillOpacity = 0, weight=2, group = "hold-outs")%>%
   addLayersControl(
     baseGroups = c("basemap", "sat photo"),
-    overlayGroups = c(var, "Mapped BGC", "hold-outs"),
+    overlayGroups = c(var, "Mapped BGC", "Predicted (full)", "Predicted (holdoutOnly)", "Predicted (holdoutAll)", "hold-outs"),
     options = layersControlOptions(collapsed = FALSE)
   )
 map
 
 
+plot(bgc.ref, col=colscheme.bgc)
+plot(map.pred.full, col=colscheme.bgc)
 
+plot(bgc.ref, col=colscheme.bgc)
+plot(map.pred.holdoutAll, col=colscheme.bgc)
 
 
 
