@@ -149,7 +149,7 @@ makeGapExtents <- function(studyarea = ext(c(-123, -118, 49, 52)), ngaps = 5L) {
 #'  
 #' @importFrom sf st_as_sf  st_join
 #' @importFrom data.table data.table
-getClimate <- function(coords, bgcs, ...) {
+getClimate <- function(coords, bgcs, crs = "EPSG:4326", ...) {
   dots <- list(...)
   
   if (any(!c("x", "y", "elev", "id") %in% names(coords))) {
