@@ -6,38 +6,39 @@ library(sf)
 library(dplyr)
 library(climr)
 library(vip)
-
-###Make 
-bgc_map <- st_read("../Common_Files/WNA_BGC_v12_5Apr2022.gpkg")
-bgc_info <- fread("../Common_Files/BGC_Info/WNA_BGCs_Info_v12_15.csv")
-BC_BGCs <- bgc_info[grep("BGC.*",Source),BGC]
-bgc_map <- bgc_map[bgc_map$BGC %in% BC_BGCs,]
-#plot(bgc_map)
-bgc_map <- st_cast(bgc_map, "POLYGON")
-dem <- rast("../Common_Files/WNA_DEM_SRT_30m_cropped.tif")
 library(tictoc)
 
-bgc_map$ID <- seq_along(bgc_map$BGC)
+bgc_info <- fread("../Common_Files/BGC_Info/WNA_BGCs_Info_v12_15.csv")
+BC_BGCs <- bgc_info[grep("BGC.*",Source),BGC]
+dem <- rast("../Common_Files/WNA_DEM_SRT_30m_cropped.tif")
 
-neighbours_ls <- list()
-for(bgc in BC_BGCs){
-  cat(".")
-  focal <- bgc_map[bgc_map$BGC == bgc,]
-  focal <- st_union(focal$geom)
-  neighbours <- st_intersects(focal, bgc_map)
-  neighbours_ls[[bgc]] <- neighbours[[1]]
-}
 
-saveRDS(neighbours_ls,"BC_BGC_NeighbourList.rds")
-st_write(bgc_map, "BC_BGCs_with_ID.gpkg")
+# bgc_map$ID <- seq_along(bgc_map$BGC)
+# 
+# neighbours_ls <- list()
+# for(bgc in BC_BGCs[-(1:180)]){
+#   cat(".")
+#   focal <- bgc_map[bgc_map$BGC == bgc,]
+#   if(nrow(focal) > 0){
+#     focal <- st_union(focal$geom)
+#     neighbours <- st_intersects(focal, bgc_map)
+#     neighbours_ls[[bgc]] <- neighbours[[1]]
+#   }
+# }
+# 
+# saveRDS(neighbours_ls,"BC_BGC_NeighbourList.rds",)
+# st_write(bgc_map, "BC_BGCs_with_ID.gpkg")
+bgc_map <- st_read("BC_BGCs_with_ID.gpkg")
+neighbours_ls <- readRDS("BC_BGC_NeighbourList.rds")
 
-require(doParallel)
-coreNum <- as.numeric(detectCores()-1)
-coreNo <- makeCluster(coreNum)
-registerDoParallel(coreNo, cores = coreNum)
+bgc_list <- names(neighbours_ls)
+bgc_list <- bgc_list[!grepl("BAFA.* | *.un.", bgc_list)]
+bgc_list <- bgc_list[-1]
 
 tic()
-res <- foreach(bgc = names(neighbours_ls)[30:40], .combine = rbind) %do% {
+res_list <- list()
+for(bgc in bgc_list){
+  cat("Processing",bgc,"\n")
   out <- bgc_map[bgc_map$ID %in% neighbours_ls[[bgc]],]
   out_union <- group_by(out, BGC) %>% 
     summarize(geom = st_union(geom),
@@ -49,21 +50,27 @@ res <- foreach(bgc = names(neighbours_ls)[30:40], .combine = rbind) %do% {
   temp_elev <- terra::extract(dem, coords)
   coords <- data.frame(coords, elev = temp_elev$WNA_DEM_SRT_30m, 
                        ID = 1:nrow(pnts_all), BGC = pnts_all$BGC)
-  clim_vars <- climr_downscale(coords, which_normal = "composite_normal", 
-                               vars = c(list_variables(),"CMI"), return_normal = T)
+  clim_vars <- suppressMessages(climr_downscale(coords, which_normal = "composite_normal", 
+                                                vars = c(list_variables(),"CMI"), return_normal = T))  
+  clim_vars <- data.table:::na.omit.data.table(clim_vars)
   clim_vars2 <- clim_vars[,c("BGC",c(list_variables(),"CMI")), with = T]
   clim_vars2[,BGC := as.factor(BGC)]
   rf_mod <- ranger(BGC ~ ., data = clim_vars2, num.trees = 201, importance = "impurity", splitrule = "gini")
   varimp <- sort(importance(rf_mod),decreasing = T)[1:10]
-  data.table(Focal = bgc, Var = names(varimp), Importance = unname(varimp))
+  res_list[[bgc]] <- data.table(Focal = bgc, Var = names(varimp), Importance = unname(varimp))
 }
-toc()
 
 
-st_write(out, "Test_IDFdk3_Neighbours.gpkg")
-st_write(pnts_all, "Test_pnts.gpkg")
+dat_all <- rbindlist(res_list)
+fwrite(dat_all, "Focal_Variable_Importance.csv")
 
-bgc_vect <- vect(bgc_map)
-focal_vect <- vect(focal)
-test <- terra::nearby(focal_vect,bgc_vect,distance = 0.1)
-plot(bgc_vect[test[,2]])
+# toc()
+# 
+# 
+# st_write(out, "Test_IDFdk3_Neighbours.gpkg")
+# st_write(pnts_all, "Test_pnts.gpkg")
+# 
+# bgc_vect <- vect(bgc_map)
+# focal_vect <- vect(focal)
+# test <- terra::nearby(focal_vect,bgc_vect,distance = 0.1)
+# plot(bgc_vect[test[,2]])
