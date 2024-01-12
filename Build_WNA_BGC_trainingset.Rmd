@@ -87,7 +87,7 @@ coords_trainWgaps <- coords_trainWgaps[clim_vars[, .(id)], on = "id", nomatch = 
 ```
 
 ```{r reduce variables}
-clim_vars <- as.data.table(clim_vars)   ## this shouldn't be necesary, submit issue/reprex to reproducible.
+setDT(clim_vars)   ## this shouldn't be necessary, submit issue/reprex to reproducible.
 addVars(clim_vars)
 
 vs_final <- c("DD5", "DD_delayed",
