@@ -53,8 +53,8 @@ makePointCoords <- function(bgc_poly, elev, gridSize = 2000, crs = "EPSG:4326") 
 #' @param coords `data.table` of point coordinates with columns "x" (longitude)
 #'   and "y" (latitude) (and any additional columns), a `SpatVector` or object 
 #'   cohersible to `SpatVector`.
-#' @param cropExt `SpatExtent` to subset the data to. Defaults to an area in 
-#'   Southern BC.
+#' @param cropExt `SpatExtent` of `SpatVector` to subset the data to. Defaults to 
+#'   the `SpatExtent` of an area in Southern BC.
 #' @param crs passed to [terra::vect()] to coerce coords to a `SpatVector` 
 #'   if it is not one already.
 #'
@@ -66,6 +66,10 @@ makePointCoords <- function(bgc_poly, elev, gridSize = 2000, crs = "EPSG:4326") 
 subsetByExtent <- function(coords, cropExt = ext(c(-123, -118, 49, 52)), crs = "EPSG:4326") {
   
   isSpatial <- FALSE
+  
+  if (!inherits(cropExt, c("SpatVector", "SpatExtent"))) {
+    stop("cropExt must be a SpatVector or a SpatExtent")
+  } 
   
   if (is(coords, "data.table")) {
     coords <- tryCatch(as.data.table(coords), error = function(e) e)
@@ -86,7 +90,7 @@ subsetByExtent <- function(coords, cropExt = ext(c(-123, -118, 49, 52)), crs = "
       }
     }
   }
-  
+
   coords_out <- crop(coords_poly, cropExt)
   
   if (!nrow(coords_out)) {
@@ -99,6 +103,35 @@ subsetByExtent <- function(coords, cropExt = ext(c(-123, -118, 49, 52)), crs = "
   }
   
   return(coords_out)
+}
+
+
+
+#' Make generate extents for gaps used in hold-out samples
+#'   for model cross-validation.
+#'
+#' @param studyarea `SpatExtent` of study area where gaps should be generated.
+#'   Defaults to an area in Southern BC. 
+#' @param ngaps integer. Number of gaps wanted..
+#'
+#' @return a `list` of extents of length `ngaps`.
+#' 
+#' @export
+#'
+#' @importFrom terra ext
+makeGapExtents <- function(studyarea = ext(c(-123, -118, 49, 52)), ngaps = 5L) {
+  centre <- c(mean(studyarea[1:2]), mean(studyarea[3:4]))
+  range <- c(diff(studyarea[1:2]), diff(studyarea[3:4]))
+  gapcentre <- matrix(c(-1,1,1,1,1,-1,-1,-1), 4, byrow=T)
+  gapextents <- ext(c(centre[1]+c(-1,1)/8*range[1], centre[2]+c(-1,1)/8*range[2]))
+  
+  ngaps <- ngaps - 1  ## we have one already
+  extragaps <- lapply(seq_len(ngaps), function(i) {
+    gap <- ext(c(centre[1]+sort(gapcentre[i,1]*c(1,3)/8)*range[1], centre[2]+sort(gapcentre[i,2]*c(1,3)/8)*range[2]))
+    gap
+  })
+
+  return(append(gapextents, extragaps))
 }
 
 #' Prepares coordinates and obtains climate normals
@@ -116,7 +149,7 @@ subsetByExtent <- function(coords, cropExt = ext(c(-123, -118, 49, 52)), crs = "
 #'  
 #' @importFrom sf st_as_sf  st_join
 #' @importFrom data.table data.table
-getClimate <- function(coords, bgcs, ...) {
+getClimate <- function(coords, bgcs, crs = "EPSG:4326", ...) {
   dots <- list(...)
   
   if (any(!c("x", "y", "elev", "id") %in% names(coords))) {
@@ -129,14 +162,13 @@ getClimate <- function(coords, bgcs, ...) {
   
   coords_bgc <- st_join(coords_sf, bgcs)
   coords_bgc <- data.table(coords_bgc[,c("id","BGC")])
-  coords_bgc[,geometry := NULL]
+  coords_bgc[, geometry := NULL]
   coords_bgc <- coords_bgc[!is.na(BGC),]
   
   coords <- as.data.frame(coords)
   
   args <- append(list(coords = coords, coords_bgc = coords_bgc), dots)
-  out <- do.call(.getClimVars, args) |>
-    Cache(.)
+  out <- do.call(.getClimVars, args)
 
   return(out)
 }
@@ -151,12 +183,14 @@ getClimate <- function(coords, bgcs, ...) {
 #' @importFrom climr climr_downscale
 #' @importFrom data.table setDT
 .getClimVars <- function(coords, coords_bgc, ...) {
-  clim_vars <- climr_downscale(coords, ...)
+  clim_vars <- climr_downscale(coords, ...) |>
+    Cache()
   setDT(clim_vars)
   clim_vars <- clim_vars[!is.nan(PPT05),] ##lots of points in the ocean
   clim_vars[coords_bgc, BGC := i.BGC, on = "ID==id"]
   clim_vars <- clim_vars[!is.na(BGC), ]
   clim_vars[, PERIOD := NULL]
+  clim_vars[, id := ID]
   clim_vars[, ID := NULL]
   
   return(clim_vars)
@@ -275,7 +309,7 @@ removeOutlier <- function(dat, alpha, vars){
     if (!inherits(md,"error")){
       ctf <- qchisq(1-alpha, df = ncol(temp)-1)
       outl <- which(md > ctf)
-      message("Removing", length(outl), "outliers from", curr, "; ")
+      message(paste("Removing", length(outl), "outliers from", curr, "; "), sep = " ")
       if (length(outl) > 0){
         temp <- temp[-outl,]
       }
