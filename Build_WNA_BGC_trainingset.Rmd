@@ -27,7 +27,8 @@ Require::Require(c(
   "tidymodels"
 ))
 
-options(reproducible.cachePath = "reproducible.cache/")
+options(reproducible.cachePath = "reproducible.cache/",
+        climr.cache.path = "climr.cache/")
 
 source("R/utils.R")
 
