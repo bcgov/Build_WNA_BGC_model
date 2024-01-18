@@ -53,8 +53,8 @@ makePointCoords <- function(bgc_poly, elev, gridSize = 2000, crs = "EPSG:4326") 
 #' @param coords `data.table` of point coordinates with columns "x" (longitude)
 #'   and "y" (latitude) (and any additional columns), a `SpatVector` or object 
 #'   cohersible to `SpatVector`.
-#' @param cropExt `SpatExtent` of `SpatVector` to subset the data to. Defaults to 
-#'   the `SpatExtent` of an area in Southern BC.
+#' @param cropExt `SpatExtent` or `SpatVector` (whose extent will be used)
+#'   to subset the data to. Defaults to the `SpatExtent` of an area in Southern BC.
 #' @param crs passed to [terra::vect()] to coerce coords to a `SpatVector` 
 #'   if it is not one already.
 #'
