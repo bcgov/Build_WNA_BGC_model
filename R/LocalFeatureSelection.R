@@ -45,9 +45,9 @@ BC_BGCs <- bgc_info[grep("BGC.*",Source),BGC]
 # saveRDS(neighbours_ls,"BC_BGC_NeighbourList.rds",)
 # st_write(bgc_map, "BC_BGCs_with_ID.gpkg")
 bgc_map <- st_read("BC_BGCs_with_ID.gpkg")
-dem <- terra::rast("E:/WNA_DEM_SRT_30m_cropped.tif")
-dem.noram <- rast("//objectstore2.nrs.bcgov/ffec/DEM/DEM_NorAm/NA_Elevation/data/northamerica/northamerica_elevation_cec_2023.tif")
-dem <- dem.noram
+dem <- terra::rast("../Common_Files/WNA_DEM_SRT_30m_cropped.tif")
+#dem.noram <- rast("//objectstore2.nrs.bcgov/ffec/DEM/DEM_NorAm/NA_Elevation/data/northamerica/northamerica_elevation_cec_2023.tif")
+#dem <- dem.noram
 
 neighbours_ls <- readRDS("BC_BGC_NeighbourList.rds")
 vars.selected <- fread("no_month_vars.csv")
@@ -57,10 +57,14 @@ bgc_list <- bgc_list[!grepl("BAFA.* | *.un.", bgc_list)]
 bgc_list <- bgc_list[-1]
 
 tic()
-res_list <- list()
 
-bgc_list <- bgc_list[-"CWHvm2"]
-for(bgc in bgc_list){
+vars <- c(vars.selected$vars,"BGC")
+bgc_list_short <- c("BGxh3", "BWBSdk", "CDFmm", "CWHvm2", "ESSFdk1","ICHmw1","IDFdk3",
+                    "IDFxx2","MHmm2","MSdw","SBSdk","SWBmk")
+#bgc_list <- bgc_list[-"CWHvm2"]
+
+res_list <- list()
+for(bgc in bgc_list_short){
   cat("Processing",bgc,"\n")
   out <- bgc_map[bgc_map$ID %in% neighbours_ls[[bgc]],]
   out_union <- group_by(out, BGC) %>% 
@@ -71,28 +75,31 @@ for(bgc in bgc_list){
   pnts_all <- st_transform(pnts_all, 4326)
   coords <- st_coordinates(pnts_all)
   temp_elev <- terra::extract(dem, coords)
+  coords <- data.frame(coords, elev = temp_elev$WNA_DEM_SRT_30m,
+                       ID = 1:nrow(pnts_all), BGC = pnts_all$BGC)
+  
   # coords <- data.frame(coords, elev = temp_elev$WNA_DEM_SRT_30m, 
   #                      ID = 1:nrow(pnts_all), BGC = pnts_all$BGC)
-  
-  coords <- data.frame(coords, elev = temp_elev$northamerica_elevation_cec_2023, 
-                       ID = 1:nrow(pnts_all), BGC = pnts_all$BGC)
   
   clim_vars <- suppressMessages(climr_downscale(coords, which_normal = "composite_normal", 
                                                 vars = c(list_variables(),"CMI"), return_normal = T))  
   clim_vars <- data.table:::na.omit.data.table(clim_vars)
-  clim_vars2 <- addVars(clim_vars)
-  vars <- vars.selected$vars
-  clim_vars3 <- clim_vars2 %>% dplyr::select(BGC, all_of(vars))
-  clim_vars2[,BGC := as.factor(BGC)]
-  rf_mod <- ranger(BGC ~ ., data = clim_vars2, num.trees = 201, importance = "impurity", splitrule = "gini")
+  addVars(clim_vars)
+  clim_vars <- clim_vars[,..vars]
+  clim_vars[,BGC := as.factor(BGC)]
+  rf_mod <- ranger(BGC ~ ., data = clim_vars, num.trees = 201, importance = "impurity", splitrule = "gini")
   varimp <- sort(importance(rf_mod),decreasing = T)[1:10]
-  res_list[[bgc]] <- data.table(Focal = bgc, Var = names(varimp), Importance = unname(varimp))
+  res_list[[bgc]] <- data.table(Focal = bgc, Var = names(varimp), 
+                                Importance = unname(varimp), 
+                                OOB = rf_mod$prediction.error,
+                                NumberBGCs = nrow(out_union))
 }
 
 
 dat_all <- rbindlist(res_list)
-fwrite(dat_all, "Focal_Variable_Importance.csv")
-
+fwrite(dat_all, "Focal_Variable_Importance_v2.csv")
+test <- dat_all[,.(Num = .N), by = .(Var)]
+setorder(test, -Num)
 # toc()
 # 
 # 
