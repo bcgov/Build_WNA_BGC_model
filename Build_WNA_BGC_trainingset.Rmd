@@ -17,21 +17,12 @@ library(ggplot2)
 require(sf)
 require(caret)
 require(ranger)
-require(climRdev)
-# 
-# library(climRdev)
-# thebb <- c(55.38847, 54.61025, -126.94957, -127.7162)
-# dbCon <- data_connect()
-# normal <- normal_input_postgis(dbCon = dbCon, bbox = thebb, cache = TRUE)
-# remove(normal)
-#tidymodels_prefer()
-#install.packages ("spThin")
-#conflicted::conflict_prefer(name = "spec", winner = "yardstick")
-#conflict_prefer("rescale", "scales")
-
-# source("../Build_USA_BEC/_functions/AddVars.R")
-# source("../Build_USA_BEC/_functions/removeOutlier.R")
-# source("../Build_USA_BEC/_functions/acc_metrix.R")
+require(climr)
+require(terra)
+require(tictoc)
+source("../Build_USA_BEC/_functions/AddVars.R")
+source("../Build_USA_BEC/_functions/removeOutlier.R")
+source("../Build_USA_BEC/_functions/acc_metrix.R")
 # cloud_dir <- "F:/OneDrive - Government of BC/CCISSv12/latest_CCISS_tool_files/"
 
 ```
@@ -46,70 +37,46 @@ To
 
 Points from a 4km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
 
-### This chunk can be run a single time to build grid of points with elevation and save for reuse.
-```{r build grid and add elevation}
-library(terra)
-library(data.table)
-require(tictoc)
 
+```{r}
+
+coords <- fread("./inputs/WNA_2km_grid_BGC.csv") %>% dplyr::select(-BGC)
+fwrite(coords,("./inputs/WNA_2km_grid.csv"))
+coords <- coords[!is.na(elev),]
+coords_sf <- st_as_sf(coords, coords = c("x","y"), crs = 4326)
+coords_sf$elev <- NULL
+coords_sf <- st_transform(coords_sf, 3005)
+#
+bgcs <- st_read("D:/CommonTables/BGC_Maps/WNA_BGC_v12_5Apr2022.gpkg")
+
+coords_bgc <- st_join(coords_sf, bgcs)
+coords_bgc <- data.table(coords_bgc[,c("id","BGC")])
+coords_bgc[,geometry := NULL]
+#coords_bgc <- coords_bgc[!is.na(BGC),]
+# 
+# #coords <- fread("WNA_2km_grid_WHM.csv")
+
+coords <- as.data.frame(coords)# %>% dplyr::rename(long = 1, lat = 2)
+setcolorder(coords, c("long","lat","elev","id"))
+coords.bgc <- coords %>% dplyr::select(id, BGC) %>% dplyr::rename(ID = id)
+## based on vs_final below
 tic()
-wna_bgc <- st_read("D:/CommonTables/BGC_Maps/WNA_BGC_v12_5Apr2022.gpkg")
-wna_bgc2 <- vect("D:/CommonTables/BGC_Maps/WNA_BGC_v12_5Apr2022.gpkg") %>% terra::project("EPSG:4326")
-wna_grid <- st_make_grid(wna_bgc, cellsize = 2000, what = "centers") %>% st_transform(crs = 4326)
-elev <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_SRT_30m.tif") 
-wna_grid2 <- vect(wna_grid)
-tmp_elev <- terra::extract(elev,wna_grid2)
-coords <- geom(wna_grid2, df = T)
-coords_only <- coords %>% dplyr::select(x,y)
-bgc_coords <- terra::extract(wna_bgc2,coords_only) %>% dplyr::select(BGC)
-coords2 <- cbind(bgc_coords, coords)# %>% tidyr::drop_na()
-## add BGC
-setDT(coords2)
-coords2[,c("part","hole","geom") := NULL]
-coords2[,elev := tmp_elev[,2]]
-coords2[,id := seq_along(elev)]
-fwrite(coords2, "WNA_2km_grid_BGC.csv")
+clim_vars <- climr_downscale(coords, which_normal = "auto", vars = list_variables(), return_normal = TRUE, cache = TRUE)
 toc()
-###260 seconds
-count_tp <- coords2 %>% dplyr::count(BGC)
 
+clim_vars2 <- dplyr::left_join(coords.bgc, clim_vars)
+setDT(clim_vars2)
+clim_vars2 <- clim_vars2[!is.nan(PPT05),] ##lots of points in the ocean
+#clim_vars[coords_bgc, BGC := i.BGC, on = c(ID = "id")]
+clim_vars2 <- clim_vars2[!is.na(BGC),]
+fwrite(clim_vars,"Training_Data_Raw.csv")
+clim_vars[,PERIOD := NULL]
+clim_vars[,ID := NULL]
+
+
+## need to apply the addvars 
 ```
 
-### Use climR to add downscaled climate data to points
-```{r Add downscaled climate variables to each point}
-library(climRdev)
-library(terra)
-coords <- fread("WNA_2km_grid_BGC.csv")%>% dplyr::rename(long = x, lat = y)
-setcolorder(coords, c("BGC", "long","lat","elev","id"))
-coords <- as.data.frame(coords) %>% tidyr::drop_na()# 
-thebb <- climRdev::get_bb(coords) ##get bounding box based on input points
-dbCon <- data_connect() ##connect to database
-
-### normal = "" is for setting the PRISM scale normal_na is 4km and normal_bc is 80m
-normal <- climRdev::normal_input_postgis(dbCon = dbCon, normal = "normal_na", bbox = thebb, cache = TRUE) ##this takes a couple mins the first time it downloads
-vars_needed <- "list_variables()"
-## if known choose shorter variable list for downscaling
-vars_needed <- c("DD5","DD_0_at","DD_0_wt","PPT05","PPT06","PPT07","PPT08","PPT09","CMD","PPT_at","PPT_wt","CMD07","SHM", "AHM", "NFFD", "PAS")
-
-##return_normal = T returns 1961-1990 period
-clim_vars <- downscale(
-  xyz = coords,
-  normal = normal,
-  return_normal = TRUE,
-  vars = vars_needed
-)
-
-setDT(clim_vars)
-clim_vars <- clim_vars[!is.nan(PPT05),]
-```
-
-```{r load and prep training data}
-#X0 <- fread("./inputs/training_data/WNAv12_2km_Hex_Pts_Normal_1961_1990MSY_3.csv")
-X0 <- fread("./inputs/WNA_4k_HexPts_BGC_NoSampleRemoved2_Normal_1961_1990MSY.csv")# %>% rename(BGC = ID2)# %>% dplyr::filter(!(BGC == "MHmm2" & Latitude > 
-
-IDVars <- X0[, .(ID1, Latitude, Longitude)]
-##______________
-```
 
 Create different model variable sets
 v1=all
@@ -121,7 +88,6 @@ vs9 = reduced 35 for biologial variable reduction to 19
 vs10+ = testing effects and final set
 
 ```{r create variable sets}
-modelvars <- colnames(X0)[-1]
 vs_final <- c("DD5", "DD_delayed",
           "PPT_MJ", "PPT_JAS", 
          "CMD.total", "CMI", "CMDMax",
@@ -133,70 +99,74 @@ vs_final <- c("DD5", "DD_delayed",
 
 
 ```{r reduce variables}
-X0 <- addVars(X0)
-X_test <- X0[, c("ID1", "BGC", vs_final), with = F] 
-X_test <- left_join(X_test, IDVars)
-fwrite(X_test, "./outputs/TrainSet_georef.csv")
-X0 <-
-  X0[, c("ID1", "BGC", vs_final), with = F] 
+addVars(clim_vars)
+X_train <- clim_vars[,c("BGC",vs_final), with = F]
 
-
-## select the variable set here
-count_tp <- X0 %>% dplyr::count(BGC)
-#X0 <- X0 %>% filter(!BGC == "ESSFab")
-
+BGC_counts <- X_train[,.(Num = .N), by = .(BGC)]
 ```
-
-
 
 
 The preprocessing function from the caret package was used to identify variables with near-zero variance or correlation >0.90 in the combined data set. These variables were removed leaving a final variable set of 20 variables.
 ```{r reduce variables, warning=FALSE} 
-
-# # calculate correlation matrix of variables
-  correlationMatrix <- cor(X0[,-c(1:2)])
+library(caret)
+  correlationMatrix <- cor(X_train[,!"BGC"])
   highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.7, verbose = TRUE, names = TRUE) ## review for removal of highly correlated vars
    highlyCorrelated
 
 ```
 
 ```{r remove poor BGCs}
-badbgs <- c("BWBSvk", "ICHmc1a", "MHun", "SBSun", "ESSFun", "SWBvk","MSdm3","ESSFdc3", "IDFdxx_WY", "MSabS", "FGff", "JPWmk_WY" )#, "ESSFab""CWHws2", "CWHwm", "CWHms1" , 
-X0 <- X0 %>%  filter(!BGC %in% badbgs)
-BGCunits <- X0 %>% arrange(BGC) %>% select(BGC)
-BGCunits <- unique(BGCunits$BGC)
-```
-
-```{r add in BGC Zone info}
-BGCZone <- fread(paste0(cloud_dir,"All_BGCs_Info_v12_10.csv"), data.table=FALSE) %>% dplyr::select(Zone, BGC)
-XAll <- left_join(X0, BGCZone) %>% dplyr::select(ID1, Zone, BGC, everything()) %>% dplyr::filter(!DD5 == -9999)
+badbgcs <- c("BWBSvk", "ICHmc1a", "MHun", "SBSun", "ESSFun", "SWBvk","MSdm3","ESSFdc3", "IDFdxx_WY", "MSabS", "FGff", "JPWmk_WY" )#, "ESSFab""CWHws2", "CWHwm", "CWHms1" , 
+X_sub <- X_train[!BGC %in% badbgcs,]
 
 ```
-
 
 
 The new rebalanced training set is 310 668 points. This training set is submitted to ranger to generate a final climate model of BGCs for western north america.
 
 ```{r final training sets}
-XAll <- as.data.frame(XAll) 
-X2 <- removeOutlier(XAll, alpha = .025, numIDvars = 3) ###set alpha for removal of outliers (2.5% = 3SD)
- count_tp <- X2 %>% dplyr::count(BGC)
-X_removed <- XAll[!XAll$ID1 %in% X2$ID1,] %>% select(ID1, BGC)
- X_removed <- left_join(X_removed, IDVars)
-fwrite( X_removed , "./outputs/RemovedOutliersTrainingSet_georef.csv")
-  X_test <- as.data.frame(X_test) 
-X_test_final <- removeOutlier(X_test, alpha = .025, numIDvars = 4) ###set alpha for removal of outliers (2.5% = 3SD)
- count_test <- X_test_final %>% dplyr::count(BGC)
-
- X_test_removed <- X_test[!X_test$ID1 %in% X_test_final$ID1,]
- 
-fwrite(X_test_final, "./outputs/FinalReducedTrainingSet_georef2.csv")
+library(foreach)
+X_sub <- as.data.frame(X_sub)
+X2 <- removeOutlier(X_sub, alpha = .025, numIDvars = 1) ###set alpha for removal of outliers (2.5% = 3SD)
 ```
 
 ````{r remove very small units}
 XAll <- as.data.table(X2)
 BGC_Nums <- XAll[,.(Num = .N), by = BGC]
-BGC_good <- XAll[!BGC %in% BGC_Nums[Num < 10, BGC],]##remove BGCs with low numbers of points
-count_tp <- BGC_good %>% dplyr::count(BGC)
-
+BGC_good <- XAll[!BGC %in% BGC_Nums[Num < 30, BGC],]##remove BGCs with low numbers of points
+fwrite(BGC_good, "Clean_traning_data.csv")
+BGC_good <- fread("Clean_traning_data.csv")
 `````
+
+```{r balance}
+library(tidymodels)
+require(themis)
+
+BGCbalance_recipe <-  recipe(BGC ~ ., data =  BGC_good) %>%
+    step_downsample(BGC, under_ratio = 90) %>%
+    step_smote(BGC, over_ratio = .1, neighbors = 8) %>% 
+    prep()
+X_balanced <- BGCbalance_recipe  %>% juice()
+setDT(X_balanced)
+BGC_Nums <- X_balanced[,.(Num = .N), by = BGC]
+```
+
+```{r train model}
+library(ranger)
+BGC_good[,BGC := as.factor(BGC)]
+
+BGCmodel <- ranger(
+  BGC ~ .,
+  data = BGC_good,
+  num.trees = 501,
+  splitrule =  "extratrees",
+  mtry = 4,
+  min.node.size = 2,
+  importance = "permutation",
+  write.forest = TRUE,
+  classification = TRUE,
+  probability = FALSE
+)
+save(BGCmodel, file = "BGCModel_Extratrees_FullData.Rdata")
+
+```
