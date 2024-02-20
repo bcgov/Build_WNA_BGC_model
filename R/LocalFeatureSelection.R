@@ -46,6 +46,7 @@ BC_BGCs <- bgc_info[grep("BGC.*",Source),BGC]
 # st_write(bgc_map, "BC_BGCs_with_ID.gpkg")
 bgc_map <- st_read("BC_BGCs_with_ID.gpkg")
 dem <- terra::rast("../Common_Files/WNA_DEM_SRT_30m_cropped.tif")
+#dem2 <- crop(dem, ext(st_transform(bgc_map, 4326)))
 #dem.noram <- rast("//objectstore2.nrs.bcgov/ffec/DEM/DEM_NorAm/NA_Elevation/data/northamerica/northamerica_elevation_cec_2023.tif")
 #dem <- dem.noram
 
@@ -81,8 +82,8 @@ for(bgc in bgc_list_short){
   # coords <- data.frame(coords, elev = temp_elev$WNA_DEM_SRT_30m, 
   #                      ID = 1:nrow(pnts_all), BGC = pnts_all$BGC)
   
-  clim_vars <- suppressMessages(climr_downscale(coords, which_normal = "composite_normal", 
-                                                vars = c(list_variables(),"CMI"), return_normal = T))  
+  clim_vars <- suppressMessages(climr_downscale(coords, which_normal = "normal_composite", 
+                                                vars = list_variables(), return_normal = T))  
   clim_vars <- data.table:::na.omit.data.table(clim_vars)
   addVars(clim_vars)
   clim_vars <- clim_vars[,..vars]
