@@ -27,7 +27,8 @@ Require::Require(c(
   "tidymodels"
 ))
 
-options(reproducible.cachePath = "reproducible.cache/")
+options(reproducible.cachePath = "reproducible.cache/",
+        climr.cache.path = "climr.cache/")
 
 source("R/utils.R")
 
@@ -179,7 +180,7 @@ elevproj <- project(elev, crs.bc) |>
 elevproj <- crop(elevproj, studyarea)
 
 elevproj2 <- postProcess(elev, 
-                         cropTo = studyarea,
+                         cropTo = vect(studyarea),
                          projectTo = crs.bc) |>
   Cache()
 
