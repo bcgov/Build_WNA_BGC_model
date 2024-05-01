@@ -23,39 +23,44 @@ addVars <- function(dat){ ##this function modifies everything inplace, so no nee
             TmaxJuly = Tmax07)]
 }
 
-
-bgc_info <- fread("../Common_Files/BGC_Info/WNA_BGCs_Info_v12_15.csv")
+bgc_map <- st_read("D:/CommonTables/CCISS/WNA_BGC_v12_19Apr2024.gpkg") %>% dplyr::filter(!BGC == "(None)")
+bgc_map$ID <- seq_along(bgc_map$BGC)
+ bgcs <- unique(bgc_map$BGC) %>% data.frame
+ fwrite(bgcs, "wna_bgcs.csv")
+ 
+ bgc_info <- fread("D:/CommonTables/CCISS/WNA_BGCs_Info_v12_16.csv") %>% filter(BGC %in% bgcs$.) #%>% mutate(bgc = as.factor(BGC))
 BC_BGCs <- bgc_info[grep("BGC.*",Source),BGC]
 
+#bgc_map <- st_read("BC_BGCs_with_ID.gpkg")
 
+neighbours_ls <- list()
+#for(bgc in BC_BGCs[-(1:180)]){
+for(bgc in bgc_info$BGC){
+  cat(".")
+  focal <- bgc_map[bgc_map$BGC == bgc,]
+  if(nrow(focal) > 0){
+    focal <- st_union(focal$geom)
+    neighbours <- st_intersects(focal, bgc_map)
+    neighbours_ls[[bgc]] <- neighbours[[1]]
+  }
+}
 
-# bgc_map$ID <- seq_along(bgc_map$BGC)
-# 
-# neighbours_ls <- list()
-# for(bgc in BC_BGCs[-(1:180)]){
-#   cat(".")
-#   focal <- bgc_map[bgc_map$BGC == bgc,]
-#   if(nrow(focal) > 0){
-#     focal <- st_union(focal$geom)
-#     neighbours <- st_intersects(focal, bgc_map)
-#     neighbours_ls[[bgc]] <- neighbours[[1]]
-#   }
-# }
-# 
-# saveRDS(neighbours_ls,"BC_BGC_NeighbourList.rds",)
-# st_write(bgc_map, "BC_BGCs_with_ID.gpkg")
-bgc_map <- st_read("BC_BGCs_with_ID.gpkg")
+saveRDS(neighbours_ls,"WNA_BGC_NeighbourList.rds",)
 
-dem <- terra::rast("D:/DEMs/WNA_DEM_4326_clipped.tif")# %>% terra::project("epsg:4326")
-#writeRaster(dem, "D:/DEMs/WNA_DEM_4326_clipped.tif")
+st_write(bgc_map, "WNA_BGCs_with_ID.gpkg", append = FALSE)
+
+#dem <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_4326_clipped.tif")
+saveRDS(dem, "//objectstore2.nrs.bcgov/ffec/CCISS_Working/WNA_DEM_4326_clippedDEM.rds")
+# %>% terra::project("epsg:4326")
+# writeRaster(dem2, "D:/CommonTables/DEMs/WNA_DEM_4326_clipped.tif")
 #dem <- rast("//objectstore2.nrs.bcgov/ffec/DEM/DEM_NorAm/NA_Elevation/data/northamerica/northamerica_elevation_cec_2023.tif")
 
-#dem <- terra::rast("../Common_Files/WNA_DEM_SRT_30m_cropped.tif")
-#dem2 <- crop(dem, ext(st_transform(bgc_map, 4326)))
+# dem <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_SRT_30m_cropped.tif")
+# dem2 <- crop(dem, ext(st_transform(bgc_map, 4326)))
 #dem.noram <- rast("//objectstore2.nrs.bcgov/ffec/DEM/DEM_NorAm/NA_Elevation/data/northamerica/northamerica_elevation_cec_2023.tif")
 #dem <- dem.noram
 
-neighbours_ls <- readRDS("BC_BGC_NeighbourList.rds")
+neighbours_ls <- readRDS("WNA_BGC_NeighbourList.rds")
 remove = c("PPT_at", "PPT_wt", "CMD.def")
 vars.selected <- fread("no_month_vars.csv") %>% dplyr::filter(!vars %in% remove)
 
@@ -67,35 +72,41 @@ tic()
 
 vars <- c(vars.selected$vars,"BGC")
 bgc_list_short <- c("BGxh3", "BWBSdk", "CDFmm", "ICHmc1", "CWHmm1", "ESSFwk1","ICHmw1","IDFdk3",
-                    "IDFxx2","MSdw","SBSdk","MSxv")
+                   "IDFxx2","MSdw","SBSdk","MSxv")
 bgc_list <- bgc_list[-"CWHvm2"]
 tic()
 res_list <- list()
-for(bgc in bgc_list_short){
+#bgc = "CDFmm"
+for(bgc in bgc_list){
   cat("Processing",bgc,"\n")
   out <- bgc_map[bgc_map$ID %in% neighbours_ls[[bgc]],]
   out_union <- group_by(out, BGC) %>% 
     summarize(geom = st_union(geom),
               BGC = BGC[1])
   pnts <- st_sample(out_union, size = rep(150, nrow(out_union)), type = "random", by_polygon = T)
-  pnts_all <- st_as_sf(data.frame(BGC = rep(out_union$BGC, each = 150), geom = pnts))
+  pnts_all <- st_as_sf(data.frame(BGC = rep(out_union$BGC, each = 150), geometry = pnts))
   pnts_all <- st_transform(pnts_all, 4326)
   coords <- st_coordinates(pnts_all)
   temp_elev <- terra::extract(dem, coords)
-  coords <- data.frame(coords, elev = temp_elev$WNA_DEM_3005_clipped,
-                       ID = 1:nrow(pnts_all), BGC = pnts_all$BGC)
-  
+  coords.bgc <- data.frame(coords, elev = temp_elev$WNA_DEM_SRT_30m,
+                       ID = 1:nrow(pnts_all), BGC = pnts_all$BGC) %>% rename(lat = Y, lon = X, id = ID) %>% 
+    dplyr::select(lon, lat, elev,id, BGC)
+  coords <- coords.bgc %>%   dplyr::select(lon, lat, elev,id)
+  coords.bgc <- coords.bgc %>% dplyr::select(id, BGC)
   # coords <- data.frame(coords, elev = temp_elev$WNA_DEM_SRT_30m, 
   #                      ID = 1:nrow(pnts_all), BGC = pnts_all$BGC)
   
-  clim_vars <- suppressMessages(climr_downscale(coords, which_normal = "normal_composite", 
+  clim_vars <- suppressMessages(climr_downscale(coords, which_normal = "auto", 
                                                 vars = list_variables(), return_normal = T))  
   clim_vars <- data.table:::na.omit.data.table(clim_vars)
   addVars(clim_vars)
-  clim_vars <- clim_vars[,..vars]
+  clim_vars <- left_join(clim_vars, coords.bgc)
+  
+  clim_vars <- setDT(clim_vars)[,..vars]
+  
   clim_vars[,BGC := as.factor(BGC)]
   rf_mod <- ranger(BGC ~ ., data = clim_vars, num.trees = 101, importance = "impurity", splitrule = "gini")
-  varimp <- sort(importance(rf_mod),decreasing = T)[1:10]
+  varimp <- sort(importance(rf_mod),decreasing = T)[1:6]
   res_list[[bgc]] <- data.table(Focal = bgc, Var = names(varimp), 
                                 Importance = unname(varimp), 
                                 OOB = rf_mod$prediction.error,
@@ -104,11 +115,29 @@ for(bgc in bgc_list_short){
 
 
 dat_all2 <- rbindlist(res_list)
-fwrite(dat_all, "Focal_Variable_Importance_v2.csv")
-test <- dat_all[,.(Num = .N), by = .(Var)]
+fwrite(dat_all2, "Focal_Variable_Importance_WNAv1.csv")
+var.count <- dat_all2[,.(Num = .N), by = .(Var)]
 setorder(test, -Num)
 toc()
-# 
+fwrite(var.count, "Count_of_Variables_v2.csv")
+#### Add type of variable by 3 categories and look by BGC
+### GS/NGS, Temp?Precip?interact, Extreme/Mean
+
+mean.error <- dat_all2 %>% select(Focal, OOB ) %>% distinct %>% mutate(mean.error = mean(OOB))
+mean.error2 <- mean.error %>% filter(!str_detect(Focal, "p$"))%>% filter(!str_detect(Focal, "w$"))
+require(ggplot2);require(stringr)
+
+
+ggplot(mean.error2, aes(x="Y" , y=OOB))+
+  geom_violin()+
+  stat_summary(fun.data = "mean_sdl",  geom="crossbar", width=0.05)
+
+var.type <- fread("Variable_Types.csv")
+dat_all2 <- fread("Focal_Variable_Importance_WNAv1.csv") %>% left_join(var.type)
+BGC_using_group <- dat_all2 %>% group_by(Focal, var.group, var.season) %>% count() %>% select(-n) %>%  ungroup() %>% group_by(var.group, var.season) %>% count()
+var.count <- dat_all2[,.(Num = .N), by = .(var.type)]
+setorder(test, -Num)
+
 # 
 # st_write(out, "Test_IDFdk3_Neighbours.gpkg")
 # st_write(pnts_all, "Test_pnts.gpkg")
