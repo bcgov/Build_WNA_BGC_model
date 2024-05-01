@@ -69,26 +69,39 @@ This chunk needs to be run only once for a version of BGC maps
 # 
 # st_write(bgc_map, "WNA_BGCs_with_ID.gpkg", append = FALSE)
 # 
-dem <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_4326_clipped.tif")
+#dem <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_4326_clipped.tif")
 # saveRDS(dem, "//objectstore2.nrs.bcgov/ffec/CCISS_Working/WNA_DEM_4326_clippedDEM.rds")
 ```
 ### Build randomforest models
 This chunk loops through the comparative list from previous chunk and creates a ranger model for each focal BGC and its neighbours.
 The model OBO and top variables is returned from each iteration as base working data for summarizing.
 This run can take considerable time.
+Step 1. Run for all variables
+Step 2. Remove variables thought to non causal (correlated to BGCs only) and compare OOB values
+Step 3. Remove any remaining highly correlated variables and compare OOB values
+Use remaining final variable set for version model development.
+Identify potential new extreme/threshold variables to feature engineer by variable type category.
 
 ```{r build random forests}
 tic()
+dem <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_4326_clipped.tif")
 neighbours_ls <- readRDS("WNA_BGC_NeighbourList.rds")
-remove1 = c("PPT_at", "PPT_wt", "CMD.def")
-remove2 = c("Eref_at", "PPT.dormant", "TD", "PPT_sm", "NFFD_wt", "MSP", "MAP", "DD18_wt", "PPT", "CMD_at", ## high use by descriptive only
-            'PAS_sm', 'NFFD_at', 'Tmax_at', 'DD5_sm', 'NFFD', 'DD18', 'DD_18', 'DD_18_sm', 'MAT', 'Tave', 'DD5', 
-            'DD_18_at', 'DD5.grow', 'DD18_at', 'DD5_at')
-remove3 = c(FFP, Tmax, Tave_at, eFFP, bFFP, DD_0, #less thatn 10 uses)
-            MCMT, EMT,PAS_at, PPT_sp, DD_0_wt, DD18_sp, DD18_wt) 
+# remove1 = c("PPT_at", "PPT_wt", "CMD.def", "Eref_at", "PPT.dormant", "TD", "DD18_wt", "NFFD_wt", 'NFFD_at',
+#             "CMD_at", 'DD18_wt', 'DD_0_wt', 'Tmax_wt', 'Tave_wt', ) ## correlated but not causative variables
+# remove2 = c( "PPT_sm", "MSP", "MAP", "PPT", ## high use by descriptive only
+#             'PAS_sm', 'Tmax_at', 'DD5_sm', 'NFFD', 'DD18', 'DD_18', 'DD_18_sm', 'MAT', 'Tave', 'DD5', 
+#             'DD_18_at', 'DD5.grow', 'DD18_at', 'DD5_at')
+# remove3 = c('FFP', 'Tmax', 'Tave_at', 'eFFP', 'bFFP', 'DD_0', #less thatn 10 uses)
+#             'MCMT', 'EMT','PAS_at', 'PPT_sp', 'DD18_sp') 
+# 
+# vars.selected <- fread("no_month_vars.csv") %>% 
+#   dplyr::filter(!vars %in% remove1) %>% 
+#     dplyr::filter(!vars %in% remove2) %>% 
+#       dplyr::filter(!vars %in% remove3)
+
+noncaus.var <- fread("Variable_Types.csv") %>% filter(corr_caus == "corr")
 vars.selected <- fread("no_month_vars.csv") %>% 
-  dplyr::filter(!vars %in% remove1) %>% 
-    dplyr::filter(!vars %in% remove2)
+  dplyr::filter(!vars %in% noncaus.var$Var) 
 
 bgc_list <- names(neighbours_ls)
 bgc_list <- bgc_list[!grepl("BAFA.* | *.un.", bgc_list)]
@@ -141,7 +154,7 @@ for(bgc in bgc_list){
 
 
 dat_all2 <- rbindlist(res_list)
-fwrite(dat_all2, "Focal_Variable_Importance_WNAv2.csv")
+fwrite(dat_all2, "Focal_Variable_Importance_WNAvcorr.csv")
 toc()
 ```
 
@@ -150,7 +163,9 @@ dat_all1 <- fread("Focal_Variable_Importance_WNAv1b.csv") %>% mutate(varset = "1
 mean.error1 <- dat_all1 %>% select(Focal, OOB, varset ) %>% distinct %>%  mutate(mean.error = mean(OOB))
 dat_all2 <- fread("Focal_Variable_Importance_WNAv2.csv") %>% mutate(varset = "2")
 mean.error2 <- dat_all2 %>% select(Focal, OOB, varset ) %>% distinct %>%  mutate(mean.error = mean(OOB))
-mean.error <- rbind(mean.error1, mean.error2)
+dat_all3 <- fread("Focal_Variable_Importance_WNAv3.csv") %>% mutate(varset = "3")
+mean.error3 <- dat_all3 %>% select(Focal, OOB, varset ) %>% distinct %>%  mutate(mean.error = mean(OOB))
+mean.error <- rbind(mean.error1, mean.error2, mean.error3)
 
 
 mean.error2 <- mean.error %>% filter(!str_detect(Focal, "p$"))%>% filter(!str_detect(Focal, "w$"))
@@ -159,10 +174,10 @@ ggplot(mean.error, aes(x= varset , y=OOB, fill = varset))+
   geom_violin()+
   stat_summary(fun.data = "mean_sdl",  geom="crossbar", width=0.05)
 
-var.count <- dat_all2[,.(Num = .N), by = .(Var)]
+var.count <- dat_all3[,.(Num = .N), by = .(Var)]
 setorder(var.count, -Num)
 
-fwrite(var.count, "Count_of_Variables_v2.csv")
+fwrite(var.count, "Count_of_Variables_v3.csv")
 
 var.type <- fread("Variable_Types.csv")
 dat_all2 <- fread("Focal_Variable_Importance_WNAv1.csv") %>% left_join(var.type)
@@ -174,10 +189,11 @@ setorder(var.count, -Num)
 
 ```{r map of BGCs with poor OBO}
 OOB <- dat_all2 %>% select(Focal, OOB) %>% rename(BGC = Focal)
-bgc_map <- st_read("D:/CommonTables/CCISS/WNA_BGC_v12_19Apr2024.gpkg") %>% dplyr::filter(!BGC == "(None)") %>% left_join(OOB)
+bgc_map <- st_read("D:/CommonTables/CCISS/WNA_BGCs_with_ID.gpkg") %>% dplyr::filter(!BGC == "(None)") %>% left_join(OOB)
+st_write(bgc_map, "BGCmap_OOB.gpkg")
 ### add OBO to BGC
 require(tmap)
-tm_shape(bgcmap +tm_fill(fill = "OOB"))
+tm_shape(bgc_map) + tm_fill(fill = bgc_map$OOB)
 # ggplot(data = bgc_map) +
 #     geom_sf(aes(fill = OOB)) +
 #     scale_fill_viridis_c(option = "plasma", trans = "sqrt")
