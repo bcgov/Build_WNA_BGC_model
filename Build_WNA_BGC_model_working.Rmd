@@ -81,118 +81,14 @@ X0 <- fread("./inputs/WNA_4k_HexPts_BGC_NoSampleRemoved2_Normal_1961_1990MSY.csv
 ##______________
 ```
 
-Create different model variable sets
-v1=all
-v2 = no months
-v3 = Biological Variables
-vs5 = 16var
-vs8 = 35 var
-vs9 = reduced 35 for biologial variable reduction to 19
-vs10+ = testing effects and final set
+## Variable set
+Import reduced list of variables from the FocalBGC_Variable_Selection scripts
+Import 2km grid of points and attribute with climr data from 1961-90.
 
 ```{r create variable sets}
-modelvars <- colnames(X0)[-1]
-vs1 <- modelvars
-month <- c("01", "02", "03", "04", "05", "06","07", "08", "09", "10", "11", "12", "Rad", "RH") ##all vars
-vs2 <- modelvars[-grep(paste(month, collapse = "|"),modelvars)]
-badvars <- "TD"
-vs2 <- vs2[!vs2 %in% badvars] ## no monthly vars and others by choice
-vs3 <- c("MAT","MCMT","MWMT","TD","MAP","MSP","AHM","SHM","DD_0","DD5","NFFD","bFFP","eFFP",
-         "PAS","EMT","Eref","CMD","Tave_wt","Tave_sm","PPT_wt","PPT_sm")## biological variables from databasin
-#vs5 <- read.csv("./outputs/Model_16Vars.csv") ### from original model
-#vs5 <- vs5$x
-vs8 <- c("Tave_at","MWMT", "DD5_at",   "DD5_sm",   "DD5_sp", "DD5_wt", # 35 variable from paper
-            "Eref_sm",   "Eref_sp",
-         "Tmin_wt", "MCMT","Tmin_sp",
-         "PPT_JAS",  "PPT_MJ",  "PPT_sm","MSP","PPT_sp",
-         "CMD_sp","CMD_at", "CMD.def", "CMDMax","CMD","CMD.total","SHM","AHM",
-          "Tmax_sp", "Tmax_sm", 
-          "bFFP",  "eFFP",  "NFFD", 
-          "PAS_wt",  "PAS_at",  "PAS_sp", "PPT_wt","PPT.dormant","PAS_sm")
 
-vs9 <- c( "DD5_sm",   "DD5_sp", "DD5", #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduce list to omit non-biological and redundant variables
-            "Eref_sm",   "Eref_sp", #"TD",
-          "MCMT", #"Tmin_sp",  #Tmin_wt","EMT", 
-         "PPT_JAS",  "PPT_MJ", #  "PPT_sp","PPT_sm","MSP",
-         "CMD_sp","CMDMax","CMD.total", #"CMD","CMD_at",
-         "SHM","AHM",# "CMD.def",
-           "Tmax_sm", "MWMT",#"Tmax_sp",
-          "bFFP",   "NFFD", #"FFP", "NFFD_sp", 
-          "PAS_wt",    "PAS_sp")# "PAS_at",, "PPT_wt","PPT.dormant","PAS_sm")
-
-
-vs10 <- c("MWMT", "DD5_at",   "DD5_sm",   "DD5_sp", "DD5", #"DD5_wt",#"Tave_at", ### some additional playing around
-            "Eref_sm",   "Eref_sp", 
-      #"EMT", #"MCMT",  #"tmin07", # "Tmin_wt", "Tmin_sp",
-         "PPT_sm","MSP","PPT_sp", #"Snow", "PAS", # "PPT_JAS",  "PPT_MJ",  
-         "CMD_sp", "CMDMax","CMD.total","SHM","AHM",#,"CMD_at", "CMD.def""CMD",
-          "Tmax_sp", "Tmax_sm")#, #, "DD18_07", # "tmax07", 
-          #"NFFD_wt")#, "KOI", "CCI") 
-        #"PAS_sp", "PAS_sm", "PAS_wt",  "PAS_at", "PPT_wt", "Tave_wt", "Tave_at", "Tave_sp",
-        #"Latitude", "Longitude", "Elevation") #"bFFP",  "eFFP", 
-
-vs33 <- c("DD5", "DD_delayed",   #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduce list to omit non-biological and redundant variables
-             #"Eref_sp", #"TD",
-          "EMT_threshold", #"MCMT",# EMT",  #"Tmin_sp",  #Tmin_wt",
-           "PPT_MJ", "PPT_JAS", #  "PPT_sp","PPT_sm","MSP",
-         "CMD.total", "CMI", "CMDMax", #"CMD","CMD_at",,"CMDMax"
-         "SHM", "AHM", # "CMD.def",
-              "EXT",#"Tmax_sp","Tmax_sm",
-           "bFFP", #"FFP", "NFFD_sp", 
-          "PAS")
-
-vs34 <- c("DD5", "DD_delayed",   #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduce list to omit non-biological and redundant variables
-             #"Eref_sp", #"TD",
-          "EMT_threshold", #"MCMT",# EMT",  #"Tmin_sp",  #Tmin_wt",
-          "MSP", # PPT_MJ", "PPT_JAS", #  "PPT_sp","PPT_sm","MSP",
-         "CMD.total", "CMI", "CMDMax", #"CMD","CMD_at",,"CMDMax"
-         "SHM", "AHM", # "CMD.def",
-              "EXT",#"Tmax_sp","Tmax_sm",
-           "NFFD", #"FFP", "NFFD_sp", 
-          "PAS")
-vs_final <- c("DD5", "DD_delayed",   #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduce list to omit non-biological and redundant variables
-             #"Eref_sp", #"TD",
-         # "EMT_threshold", #"MCMT",# EMT",  #"Tmin_sp",  #Tmin_wt",
-          "PPT_MJ", "PPT_JAS", # PPT_MJ", "PPT_JAS", #  "PPT_sp","PPT_sm","MSP",
-         "CMD.total", "CMI", "CMDMax", #"CMD","CMD_at",,"CMDMax"
-         "SHM", "AHM", # "CMD.def",
-              #"EXT",#"Tmax_sp","Tmax_sm",
-            "NFFD", #"FFP",  "NFFD","NFFD_sp",
-          "PAS")#,
-         #"Eref_at", "CMI_sm")
-vs_test <- c("DD5", "DD_delayed",   #"DD18",#"DD5_wt","Tave_at","DD5_at", ### reduce list to omit non-biological and redundant variables
-             #"Eref_sp", #"TD",
-         # "EMT_threshold", #"MCMT",# EMT",  #"Tmin_sp",  #Tmin_wt",
-          "PPT_MJ", "PPT_JAS", # PPT_MJ", "PPT_JAS", #  "PPT_sp","PPT_sm","MSP",
-         "CMD.total", "CMI", "CMI_sm", #CMDMax", #"CMD","CMD_at",,"CMDMax"
-         "SHM", "AHM", # "CMD.def",
-              #"EXT",#"Tmax_sp","Tmax_sm",
-            "NFFD", #"FFP",  "NFFD","NFFD_sp",
-          "PAS", "MAT")
 ```
 
-
-```{r feature engineering}
-##winter min temperature thresholds
-# X0 <- X0 %>%  mutate(EMT_threshold = ifelse(EMT <=-40, 1,
-#                                                ifelse(EMT > -40 & EMT <= -15, 2,
-#                                                        ifelse(EMT > -15  & Tmax_sm <= 0, 3,4))))
-# #                                                            ifelse(Tmax_sm >36, 4, 5))))))
-
-##extreme summer temperatures
-# X0a <- X0 %>%  mutate(DD_delayed = (((DD_0_01+ DD_0_02 + DD_0_03 +DD_0_11 + DD_0_12 )*0.0238) - 1.8386)) %>% mutate_if(is.numeric, round, digits=1)
-#             
-#           #  ifelse(DD <= 12, 0,
-# #                                          ifelse(Tmax_sm >12 &  Tmax_sm <= 24, 1, 
-# #                                                 ifelse(Tmax_sm >24 & Tmax_sm <= 30, 2,
-# #                                                        ifelse(Tmax_sm >30 & Tmax_sm <= 36, 3,
-# #                                                            ifelse(Tmax_sm >36, 4, 5))))))
-# X0a$DD_delayed <- ifelse(X0a$DD_delayed <=0, 0, X0a$DD_delayed )
-# bgcs2 <- c("BWBSdk", "MSxv")
-# x.test <- X0a %>% dplyr::select(BGC, DD_delayed, DD5) %>% dplyr::filter(BGC %in% bgcs2)
-# 
-# X0 <- X0a
-```
 
 ```{r reduce variables}
 X0 <- addVars(X0)

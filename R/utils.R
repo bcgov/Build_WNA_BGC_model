@@ -300,6 +300,7 @@ logVars <- function(dat,
 #' @importFrom stats mahalanobis qchisq cov
 #' 
 #' @export
+
 removeOutlier <- function(dat, alpha, vars){
   out <- foreach(curr = unique(as.character(dat$BGC)), .combine = rbind) %do% {
     temp <- dat[dat$BGC == curr,]

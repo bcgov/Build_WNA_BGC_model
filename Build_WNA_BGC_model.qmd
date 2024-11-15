@@ -1,0 +1,185 @@
+---
+title: "Random Forest Model of Biogeoclimatic Units for Western North America"
+author: "William H MacKenzie"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+require (smotefamily)
+require(data.table)
+library(randtoolbox)
+library(clhs)
+library(foreign)
+library(ggplot2)
+#library(maptools)
+library(sp)
+library(spatstat)
+require(doParallel)
+require(scales)
+require(sf)
+require(caret)
+require (gstat)
+require(ranger)
+require(rticles)
+require(tictoc)
+require(randomForest)
+library(tidyverse)
+require(tidymodels)
+require(vip)
+require(stringr)
+require(corpcor)
+library(yaml)
+require(tidypredict)
+require(skimr)
+require(DescTools)
+require(themis)
+require(climr)
+source("../Build_USA_BEC/_functions/AddVars.R")
+source("../Build_USA_BEC/_functions/removeOutlier.R")
+source("../Build_USA_BEC/_functions/acc_metrix.R")
+cloud_dir <- "F:/OneDrive - Government of BC/CCISSv12/latest_CCISS_tool_files/"
+```
+
+# General process
+Build a grid of points for WNA and attribute with data from ClimateBC for BC and ClimateNA for rest. A 2km grid seems to provide enough training points for most BGCs. Large non-vegetation land areas are excluded (lakes and glaciers primarily)
+There are areas where BGC mapping represents local effects represented by small polygons and these are removed (2km2) or are coast transition areas that are poorly mapped and climte modelled (inland polygons of CWH)
+We tested various variable sets - more work could be done here. First only include variables where an ecologically important control could be defined. Variables are removed that are highly correlated in both space and time. Preliminary runs in the modern climate change period (1991-2019) were assessed. Some additional variables that  were removed at this point as the priority effect could not be controlled. Specifically winter temperatures, which strongly differentiate between BGCs in historic models also rise most markedly through time. As there is no way to prioritize growing season variables, the increase in winter temperatures in the modern period then predict vast changes in the SBS which seem unwarranted. Threshold controls of winter temperatures might be more relevant.
+Univariate outliers (IQR *1.5) within each BGC are flagged and  training points with any outliers are removed.
+All variables are centered and scaled to harmonize the data dispersion which can effect selection in the model.
+To 
+
+Points from a 4km hex grid of western north america are generated in R and submitted to ClimateNA to extract annual and seasonal variables for the historic normal period (1961-90) and an ensemble future climate scenario (rcp45 2040-2070). These data sets are combined. Several additional climate variables are generated including several monthly climate sums for precipitation and growing degree days. All other monthly variables are removed. A winter rechange moisture deficit was calculated and summed with the climatic moisture deficit to account for regions that begin the growing season in soil moisture deficit.
+
+## Attribute training data with climate data
+
+Import training point data and add climr variable to training set in preparation for BGC model build. Save for recovery in the model building scripts.
+
+```{r}
+# getClimate <- function(coords, bgcs, crs = "EPSG:4326", ...) {
+#   dots <- list(...)
+#   
+#   if (any(!c("x", "y", "elev", "id") %in% names(coords))) {
+#     stop("coords mmust contain columns 'x', 'y', 'elev' and 'id'")
+#   }
+#   
+#   coords_sf <- st_as_sf(coords, coords = c("x","y"), crs = crs)
+#   coords_sf$elev <- NULL
+#   coords_sf <- st_transform(coords_sf, 3005)
+#   
+#   coords_bgc <- st_join(coords_sf, bgcs)
+#   coords_bgc <- data.table(coords_bgc[,c("id","BGC")])
+#   coords_bgc[, geometry := NULL]
+#   coords_bgc <- coords_bgc[!is.na(BGC),]
+#   
+#   coords <- as.data.frame(coords)
+#   
+#   args <- append(list(coords = coords, coords_bgc = coords_bgc), dots)
+#   out <- do.call(.getClimVars, args)
+# 
+#   return(out)
+# }
+```
+
+```{r read in training point table and attribute}
+training.grid <- fread("./inputs/WNA_2km_grid.csv",  stringsAsFactors = FALSE,data.table = FALSE)  %>%
+  dplyr::rename(lon = x, lat = y) %>%
+  dplyr::filter(!is.na(lat)) %>%
+  dplyr::select(lon,lat,elev, id)
+
+setcolorder(training.grid, c("lon","lat","elev", "id"))
+clim_vars <- climr_downscale(training.grid, which_normal = "auto", vars = climr::list_variables(), return_normal = TRUE, cache = TRUE)
+### add vars and then reduce to var.selected
+clim_vars2 <- addVars(clim_vars)
+vars.selected <- fread("variables_selected.csv")
+setDT(clim_vars2)
+clim_vars2[,PERIOD := NULL]
+```
+
+Spatial overlay with BGC map to add BGC membership of grid
+Reduce training set to variables determined from focal comparison scripts
+```{r add current BGC and reduce to raw training set}
+# bgc_map <- st_read("D:/CommonTables/CCISS/WNA_BGC_v12_19Apr2024.gpkg") %>% dplyr::filter(!BGC == "(None)")
+#   coords_sf <- st_as_sf(training.grid, coords = c("lon","lat"), crs = 4326)
+#   coords_sf$elev <- NULL
+#   coords_sf <- st_transform(coords_sf, 3005)
+#   coords_bgc <- st_join(coords_sf, bgc_map)
+#   coords_bgc <- data.table(coords_bgc[,c("id","BGC")])
+#   coords_bgc[, geometry := NULL]
+#   coords_bgc <- coords_bgc[!is.na(BGC),]
+#     #coords <- as.data.frame(coords)
+#   training.grid2 <- left_join(coords_bgc, training.grid) %>% left_join(clim_vars2)
+# vars.selected <- fread("variables_selected.csv")
+#  training.grid3 <-   training.grid2 %>% select(id, BGC, lat, lon, elev, vars.selected$vars) %>% filter(!if_any(everything(), is.na))
+ # saveRDS(training.grid3, "./inputs/WNA_training_grid_9May2024.rds")
+```
+## remove units with too few points and points that are outliers in the distribution.
+This is too remove the outlier polygons in the raw WNA map that have not yet been cleaned from the bgc map
+
+```{r count of training points by BGC}
+# training.raw <- readRDS("./inputs/WNA_training_grid_9May2024.rds")
+# bgc.points <- training.raw %>% count(BGC)
+# bgc.too.few <- bgc.points %>% filter(n<50)
+# bgc.training.raw <- training.raw %>% filter(!BGC %in% bgc.too.few$BGC)
+# bgc.training <- removeOutlier(bgc.training.raw, alpha = .025, numIDvars = 2) %>% droplevels###set alpha for removal of outlieres (2.5% = 3SD)
+# count_tp <- bgc.training %>% dplyr::count(BGC)
+```
+Run training point rebalancing and save final training set
+Some remaining variables are highly correlated in past but retained as they may no longer remain (as) correlated in future.
+```{r rebalance training set}
+#bgc.training2 <- bgc.training %>% filter(!BGC %in% "ESSFdh_WA")
+# BGCbalance_recipe <-  recipe(BGC ~ ., data =  bgc.training) %>%
+#     update_role(id, new_role = "id variable") %>% 
+#     update_role(lat, lon, new_role = "georef") %>% 
+#   step_nearmiss(BGC, under_ratio = 10, neighbors = 10) %>%  
+#   step_smote(BGC, over_ratio = .2, neighbors = 5) %>% 
+#     prep()
+# BGC_train2 <- BGCbalance_recipe  %>% juice()
+# BGC_train2$BGC <- as.factor(BGC_train2$BGC)
+#   
+#   BGC_train_sum2 <- BGC_train2 %>%
+#   dplyr::group_by(BGC) %>%
+#   dplyr::summarise(freq = n()) %>%
+#   dplyr::mutate(prop = round(freq/sum(freq),3))
+# 
+# ggplot( BGC_train_sum2, aes(x= reorder(BGC, -freq), y = freq)) +
+#   geom_bar(stat = "identity") + 
+#   theme(axis.text.x = element_text(angle = 90))+
+#   ggtitle("Up/downsampled set")
+#  count_tp2 <- BGC_train2 %>% dplyr::count(BGC)
+# saveRDS(BGC_train2, "./inputs/WNA_training_reduced_9May2024.rds")
+```
+Run models with multiple setting for trees= to find minimum number. Size of model is directly relate to tree number.
+The 401 trees model takes approximately 1 hour to run
+```{r build BGC model}
+BGC_train2 <- readRDS("./inputs/WNA_training_reduced_9May2024.rds")
+BGC_train2 <- BGC_train2 %>% select(-id, -lat, -lon, -elev)
+
+tic()
+BGCmodel_full <- ranger(
+  BGC ~ .,
+  data = BGC_train2,
+  num.trees = 401,
+  splitrule =  "gini",
+  #mtry = 4,
+  #min.node.size = 2,
+  importance = "impurity",
+  write.forest = TRUE,
+  classification = TRUE,
+  probability = FALSE
+)
+toc()
+BGCmodel_full
+vip(BGCmodel_full, num_features = 25)
+saveRDS(BGCmodel_full, file= "WNA_BGCv12_10May24.rds")
+```
+

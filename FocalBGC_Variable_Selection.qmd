@@ -43,11 +43,12 @@ addVars <- function(dat){ ##this function modifies everything inplace, so no nee
 This chunk needs to be run only once for a version of BGC maps
 
 ```{r build comparative list}
-# bgc_map <- st_read("D:/CommonTables/CCISS/WNA_BGC_v12_19Apr2024.gpkg") %>% dplyr::filter(!BGC == "(None)")
-# bgc_map$ID <- seq_along(bgc_map$BGC)
-#  bgcs <- unique(bgc_map$BGC) %>% data.frame
-#  fwrite(bgcs, "wna_bgcs.csv")
-#  
+bgc_map <- st_read("D:/CommonTables/CCISS/WNA_BGC_v12_19Apr2024.gpkg") %>% dplyr::filter(!BGC == "(None)")
+bgc_map$ID <- seq_along(bgc_map$BGC)
+ bgcs <- unique(bgc_map$BGC) %>% data.frame
+ fwrite(bgcs, "wna_bgcs.csv")
+ st_write(bgc_map, "WNA_BGCs_with_ID.gpkg", append = FALSE)
+
 #  bgc_info <- fread("D:/CommonTables/CCISS/WNA_BGCs_Info_v12_16.csv") %>% filter(BGC %in% bgcs$.) #%>% mutate(bgc = as.factor(BGC))
 # BC_BGCs <- bgc_info[grep("BGC.*",Source),BGC]
 # 
@@ -67,7 +68,7 @@ This chunk needs to be run only once for a version of BGC maps
 # 
 # saveRDS(neighbours_ls,"WNA_BGC_NeighbourList.rds",)
 # 
-# st_write(bgc_map, "WNA_BGCs_with_ID.gpkg", append = FALSE)
+
 # 
 #dem <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_4326_clipped.tif")
 # saveRDS(dem, "//objectstore2.nrs.bcgov/ffec/CCISS_Working/WNA_DEM_4326_clippedDEM.rds")
@@ -85,23 +86,28 @@ Identify potential new extreme/threshold variables to feature engineer by variab
 ```{r build random forests}
 tic()
 dem <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_4326_clipped.tif")
+bgc_map <-  st_read("WNA_BGCs_with_ID.gpkg")
 neighbours_ls <- readRDS("WNA_BGC_NeighbourList.rds")
-# remove1 = c("PPT_at", "PPT_wt", "CMD.def", "Eref_at", "PPT.dormant", "TD", "DD18_wt", "NFFD_wt", 'NFFD_at',
-#             "CMD_at", 'DD18_wt', 'DD_0_wt', 'Tmax_wt', 'Tave_wt', ) ## correlated but not causative variables
-# remove2 = c( "PPT_sm", "MSP", "MAP", "PPT", ## high use by descriptive only
-#             'PAS_sm', 'Tmax_at', 'DD5_sm', 'NFFD', 'DD18', 'DD_18', 'DD_18_sm', 'MAT', 'Tave', 'DD5', 
-#             'DD_18_at', 'DD5.grow', 'DD18_at', 'DD5_at')
-# remove3 = c('FFP', 'Tmax', 'Tave_at', 'eFFP', 'bFFP', 'DD_0', #less thatn 10 uses)
-#             'MCMT', 'EMT','PAS_at', 'PPT_sp', 'DD18_sp') 
-# 
-# vars.selected <- fread("no_month_vars.csv") %>% 
-#   dplyr::filter(!vars %in% remove1) %>% 
-#     dplyr::filter(!vars %in% remove2) %>% 
-#       dplyr::filter(!vars %in% remove3)
+remove1 = c("PPT_at", "PPT_wt", "CMD.def", "Eref_at", "PPT.dormant", "TD", "DD18_wt", "NFFD_wt", 'NFFD_at',
+            "CMD_at", 'DD18_wt', 'DD_0_wt', 'Tmax_wt', 'Tave_wt') ## correlated but not causative variables
+remove2 = c( "PPT_sm", "MSP", "MAP", "PPT", ## high use by descriptive only
+            'PAS_sm', 'Tmax_at', 'DD5_sm', 'NFFD', 'DD18', 'DD_18', 'DD_18_sm', 'MAT', 'Tave', 'DD5',
+            'DD_18_at', 'DD5.grow', 'DD18_at', 'DD5_at')
+remove3 = c('FFP', 'Tmax', 'Tave_at', 'eFFP', 'bFFP', 'DD_0', #less thatn 10 uses)
+            'MCMT', 'EMT','PAS_at', 'PPT_sp', 'DD18_sp')
+remove4 = c('CMD', 'CMDMax', 'CMD.grow', 'CMD_sp', 'AHM', 'TmaxJuly', #redundant
+            'DD_18_wt', 'DD5_wt', 'DD_18_sp') ## other missed non-relevant
 
 noncaus.var <- fread("Variable_Types.csv") %>% filter(corr_caus == "corr")
-vars.selected <- fread("no_month_vars.csv") %>% 
-  dplyr::filter(!vars %in% noncaus.var$Var) 
+vars.selected <- fread("no_month_vars.csv") %>%
+  dplyr::filter(!vars %in% remove1) %>%
+    dplyr::filter(!vars %in% remove2) %>%
+      dplyr::filter(!vars %in% remove3)%>%
+      dplyr::filter(!vars %in% remove4) %>% 
+      dplyr::filter(!vars %in% noncaus.var$Var) 
+fwrite(vars.selected, "variables_selected.csv")
+var.type <- fread("Variable_Types.csv") %>% filter(Var %in% vars.selected$vars)
+var_using_group <- var.type %>% group_by(var.group, var.season, var.type) %>% count() %>% filter(n>2)
 
 bgc_list <- names(neighbours_ls)
 bgc_list <- bgc_list[!grepl("BAFA.* | *.un.", bgc_list)]
@@ -154,7 +160,7 @@ for(bgc in bgc_list){
 
 
 dat_all2 <- rbindlist(res_list)
-fwrite(dat_all2, "Focal_Variable_Importance_WNAvcorr.csv")
+fwrite(dat_all2, "Focal_Variable_Importance_WNAv4.csv")
 toc()
 ```
 
@@ -165,9 +171,9 @@ dat_all2 <- fread("Focal_Variable_Importance_WNAv2.csv") %>% mutate(varset = "2"
 mean.error2 <- dat_all2 %>% select(Focal, OOB, varset ) %>% distinct %>%  mutate(mean.error = mean(OOB))
 dat_all3 <- fread("Focal_Variable_Importance_WNAv3.csv") %>% mutate(varset = "3")
 mean.error3 <- dat_all3 %>% select(Focal, OOB, varset ) %>% distinct %>%  mutate(mean.error = mean(OOB))
-mean.error <- rbind(mean.error1, mean.error2, mean.error3)
-
-
+dat_all4 <- fread("Focal_Variable_Importance_WNAv4.csv") %>% mutate(varset = "4")
+mean.error4 <- dat_all4 %>% select(Focal, OOB, varset ) %>% distinct %>%  mutate(mean.error = mean(OOB))
+mean.error <- rbind(mean.error1, mean.error2, mean.error3, mean.error4)
 mean.error2 <- mean.error %>% filter(!str_detect(Focal, "p$"))%>% filter(!str_detect(Focal, "w$"))
 require(ggplot2);require(stringr)
 ggplot(mean.error, aes(x= varset , y=OOB, fill = varset))+
@@ -180,12 +186,14 @@ setorder(var.count, -Num)
 fwrite(var.count, "Count_of_Variables_v3.csv")
 
 var.type <- fread("Variable_Types.csv")
-dat_all2 <- fread("Focal_Variable_Importance_WNAv1.csv") %>% left_join(var.type)
-BGC_using_group <- dat_all2 %>% group_by(Focal, var.group, var.season) %>% count() %>% select(-n) %>%  ungroup() %>% group_by(var.group, var.season) %>% count()
+dat_all2 <- fread("Focal_Variable_Importance_WNAv3.csv") %>% left_join(var.type)
+BGC_using_group <- dat_all2 %>% group_by(Focal, var.group, var.season, var.type) %>% count() %>% filter(n>2)
+
+#%>% select(-n) %>%  ungroup() %>% group_by(var.group, var.season, var.type) %>% count()
 var.type.count <- dat_all2[,.(Num = .N), by = .(var.type)]
 setorder(var.count, -Num)
 ```
-
+## Graphically show BGCs with relatively poor focal BGC models (separation from neighbours)
 
 ```{r map of BGCs with poor OBO}
 OOB <- dat_all2 %>% select(Focal, OOB) %>% rename(BGC = Focal)
