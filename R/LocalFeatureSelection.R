@@ -23,12 +23,12 @@ addVars <- function(dat){ ##this function modifies everything inplace, so no nee
             TmaxJuly = Tmax07)]
 }
 
-bgc_map <- st_read("D:/CommonTables/CCISS/WNA_BGC_v12_19Apr2024.gpkg") %>% dplyr::filter(!BGC == "(None)")
+bgc_map <- st_read("D:/OneDrive - Government of BC/WNA_BGC - Future Forest Ecosystems Centre/ccissv13_files/WNA_BGC_v13_15Nov2024.gpkg") %>% dplyr::filter(!BGC == "(None)")
 bgc_map$ID <- seq_along(bgc_map$BGC)
  bgcs <- unique(bgc_map$BGC) %>% data.frame
  fwrite(bgcs, "wna_bgcs.csv")
  
- bgc_info <- fread("D:/CommonTables/CCISS/WNA_BGCs_Info_v12_16.csv") %>% filter(BGC %in% bgcs$.) #%>% mutate(bgc = as.factor(BGC))
+bgc_info <- fread("D:/OneDrive - Government of BC/WNA_BGC - Future Forest Ecosystems Centre/ccissv13_files/WNA_BGCs_Info_v13_1.csv") %>% filter(BGC %in% bgcs$.) #%>% mutate(bgc = as.factor(BGC))
 BC_BGCs <- bgc_info[grep("BGC.*",Source),BGC]
 
 #bgc_map <- st_read("BC_BGCs_with_ID.gpkg")
@@ -76,7 +76,7 @@ bgc_list_short <- c("BGxh3", "BWBSdk", "CDFmm", "ICHmc1", "CWHmm1", "ESSFwk1","I
 bgc_list <- bgc_list[-"CWHvm2"]
 tic()
 res_list <- list()
-#bgc = "CDFmm"
+bgc = "CDFmm"
 for(bgc in bgc_list){
   cat("Processing",bgc,"\n")
   out <- bgc_map[bgc_map$ID %in% neighbours_ls[[bgc]],]
