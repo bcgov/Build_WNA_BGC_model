@@ -2,13 +2,12 @@
 title: "LocalFeatureSelection"
 author: "KDaust and WHMacKenzie"
 format: html
-editor: visual
+editor: source
 ---
 
 ## Focal BGC comparison to neighbours
 
 This code builds randomforest models of every BGC in WNA compared to spatial neighbours and returns the model error and variables with high importance in each model. The aim of this approach is an alternate way to create a list of variables to include in the WNA BGC model.
-
 
 ```{r package and functions}
 library(data.table)
@@ -22,6 +21,8 @@ library(vip)
 library(tictoc)
 require(ggplot2)
 require(stringr)
+
+data.drive <- "D:/OneDrive - Government of BC/WNA_BGC - Future Forest Ecosystems Centre/ccissv13_files/"
 
 addVars <- function(dat){ ##this function modifies everything inplace, so no need for return value
   dat[,`:=`(PPT_MJ = PPT05+PPT06,
@@ -43,45 +44,42 @@ addVars <- function(dat){ ##this function modifies everything inplace, so no nee
 This chunk needs to be run only once for a version of BGC maps
 
 ```{r build comparative list}
-bgc_map <- st_read("D:/CommonTables/CCISS/WNA_BGC_v12_19Apr2024.gpkg") %>% dplyr::filter(!BGC == "(None)")
+bgc_map <- st_read(paste0(data.drive, "WNA_BGC_v13_15Nov2024.gpkg")) %>% dplyr::filter(!BGC == "(None)")
 bgc_map$ID <- seq_along(bgc_map$BGC)
  bgcs <- unique(bgc_map$BGC) %>% data.frame
  fwrite(bgcs, "wna_bgcs.csv")
  st_write(bgc_map, "WNA_BGCs_with_ID.gpkg", append = FALSE)
 
-#  bgc_info <- fread("D:/CommonTables/CCISS/WNA_BGCs_Info_v12_16.csv") %>% filter(BGC %in% bgcs$.) #%>% mutate(bgc = as.factor(BGC))
-# BC_BGCs <- bgc_info[grep("BGC.*",Source),BGC]
-# 
-# #bgc_map <- st_read("BC_BGCs_with_ID.gpkg")
-# 
-# neighbours_ls <- list()
-# #for(bgc in BC_BGCs[-(1:180)]){
-# for(bgc in bgc_info$BGC){
-#   cat(".")
-#   focal <- bgc_map[bgc_map$BGC == bgc,]
-#   if(nrow(focal) > 0){
-#     focal <- st_union(focal$geom)
-#     neighbours <- st_intersects(focal, bgc_map)
-#     neighbours_ls[[bgc]] <- neighbours[[1]]
-#   }
-# }
-# 
-# saveRDS(neighbours_ls,"WNA_BGC_NeighbourList.rds",)
-# 
+```
+
+```{r  bgc_info <- fread("D:/CommonTables/CCISS/WNA_BGCs_Info_v12_16.csv") %>% filter(BGC %in% bgcs$.) #%>% mutate(bgc = as.factor(BGC))}
+BC_BGCs <- bgc_info[grep("BGC.*",Source),BGC]
+
+bgc_map <- st_read("WNA_BGCs_with_ID.gpkg")
+
+neighbours_ls <- list()
+#for(bgc in BC_BGCs[-(1:180)]){
+for(bgc in bgc_info$BGC){
+  cat(".")
+  focal <- bgc_map[bgc_map$BGC == bgc,]
+  if(nrow(focal) > 0){
+    focal <- st_union(focal$geom)
+    neighbours <- st_intersects(focal, bgc_map)
+    neighbours_ls[[bgc]] <- neighbours[[1]]
+  }
+}
+
+saveRDS(neighbours_ls,"WNA_BGC_NeighbourList.rds",)
 
 # 
-#dem <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_4326_clipped.tif")
+# 
+# dem <- terra::rast("D:/CommonTables/DEMs/WNA_DEM_4326_clipped.tif")
 # saveRDS(dem, "//objectstore2.nrs.bcgov/ffec/CCISS_Working/WNA_DEM_4326_clippedDEM.rds")
 ```
+
 ### Build randomforest models
-This chunk loops through the comparative list from previous chunk and creates a ranger model for each focal BGC and its neighbours.
-The model OBO and top variables is returned from each iteration as base working data for summarizing.
-This run can take considerable time.
-Step 1. Run for all variables
-Step 2. Remove variables thought to non causal (correlated to BGCs only) and compare OOB values
-Step 3. Remove any remaining highly correlated variables and compare OOB values
-Use remaining final variable set for version model development.
-Identify potential new extreme/threshold variables to feature engineer by variable type category.
+
+This chunk loops through the comparative list from previous chunk and creates a ranger model for each focal BGC and its neighbours. The model OBO and top variables is returned from each iteration as base working data for summarizing. This run can take considerable time. Step 1. Run for all variables Step 2. Remove variables thought to non causal (correlated to BGCs only) and compare OOB values Step 3. Remove any remaining highly correlated variables and compare OOB values Use remaining final variable set for version model development. Identify potential new extreme/threshold variables to feature engineer by variable type category.
 
 ```{r build random forests}
 tic()
@@ -193,6 +191,7 @@ BGC_using_group <- dat_all2 %>% group_by(Focal, var.group, var.season, var.type)
 var.type.count <- dat_all2[,.(Num = .N), by = .(var.type)]
 setorder(var.count, -Num)
 ```
+
 ## Graphically show BGCs with relatively poor focal BGC models (separation from neighbours)
 
 ```{r map of BGCs with poor OBO}
@@ -206,4 +205,3 @@ tm_shape(bgc_map) + tm_fill(fill = bgc_map$OOB)
 #     geom_sf(aes(fill = OOB)) +
 #     scale_fill_viridis_c(option = "plasma", trans = "sqrt")
 ```
-
